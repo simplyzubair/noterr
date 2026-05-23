@@ -36,10 +36,27 @@ class _LoginScreenState extends State<LoginScreen> {
         await widget.controller.signIn(_email.text.trim(), _password.text);
       }
     } catch (error) {
-      setState(() => _error = error.toString());
+      setState(() => _error = _friendlyAuthError(error));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  String _friendlyAuthError(Object error) {
+    final message = error.toString();
+    if (message.contains('over_email_send_rate_limit')) {
+      final seconds = RegExp(r'after (\d+) seconds').firstMatch(message)?.group(1);
+      return seconds == null
+          ? 'Please wait a little before requesting another sign-up email.'
+          : 'Please wait $seconds seconds before requesting another sign-up email.';
+    }
+    if (message.contains('Email not confirmed')) {
+      return 'Please confirm your email first, or disable email confirmation in Supabase while testing.';
+    }
+    if (message.contains('Invalid login credentials')) {
+      return 'Email or password is incorrect.';
+    }
+    return message;
   }
 
   @override
