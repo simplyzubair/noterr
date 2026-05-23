@@ -28,8 +28,14 @@ class NoterrController extends ChangeNotifier {
   final List<Note> _notes = [];
   SecretKey? _key;
   StreamSubscription<RemoteNoteEnvelope>? _remoteSub;
+  Timer? _syncTimer;
   String _deviceId = '';
   DateTime? _lastPulledAt;
+  DateTime? _lastSyncAt;
+  DateTime? _lastPushAt;
+  DateTime? _lastRemoteEventAt;
+  int _lastPulledCount = 0;
+  int _lastPushedCount = 0;
   SyncState _syncState = SyncState.offline;
   String? _error;
 
@@ -39,6 +45,12 @@ class NoterrController extends ChangeNotifier {
   SyncState get syncState => _syncState;
   String? get error => _error;
   String get deviceId => _deviceId;
+  String? get syncAccountId => _remote.currentUserId;
+  DateTime? get lastSyncAt => _lastSyncAt;
+  DateTime? get lastPushAt => _lastPushAt;
+  DateTime? get lastRemoteEventAt => _lastRemoteEventAt;
+  int get lastPulledCount => _lastPulledCount;
+  int get lastPushedCount => _lastPushedCount;
 
   List<Note> get notes => List.unmodifiable(_notes);
 
@@ -225,6 +237,7 @@ class NoterrController extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    _syncTimer?.cancel();
     await _remoteSub?.cancel();
     await _remote.signOut();
     _key = null;
@@ -233,6 +246,7 @@ class NoterrController extends ChangeNotifier {
   }
 
   Future<void> lock() async {
+    _syncTimer?.cancel();
     await _remoteSub?.cancel();
     _key = null;
     _notes.clear();
@@ -268,7 +282,17 @@ class NoterrController extends ChangeNotifier {
 
     await syncNow();
     _subscribeRemote();
+    _startSyncTimer();
     await _publishWidget();
+  }
+
+  void _startSyncTimer() {
+    _syncTimer?.cancel();
+    if (!hasCloud || _key == null) return;
+    _syncTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (_syncState == SyncState.syncing) return;
+      unawaited(syncNow());
+    });
   }
 
   Future<void> _ensurePasskeySession(String passphrase) async {
@@ -360,11 +384,16 @@ class NoterrController extends ChangeNotifier {
     _setSync(SyncState.syncing);
     try {
       final remoteNotes = await _remote.pullNotes(key);
+      _lastPulledCount = remoteNotes.length;
       _merge(remoteNotes);
+      var pushed = 0;
       for (final note in _notes) {
         await _remote.pushNote(note, key, _deviceId);
+        pushed++;
       }
+      _lastPushedCount = pushed;
       _lastPulledAt = DateTime.now().toUtc();
+      _lastSyncAt = _lastPulledAt;
       await _saveLocal();
       _setSync(SyncState.idle);
     } on AuthException catch (error) {
@@ -389,6 +418,7 @@ class NoterrController extends ChangeNotifier {
         final json = await VaultCrypto.decryptJson(payload, key);
         final note = Note.fromJson(json);
         _merge([note]);
+        _lastRemoteEventAt = DateTime.now().toUtc();
         await _saveLocal();
         await _publishWidget();
         notifyListeners();
@@ -406,6 +436,8 @@ class NoterrController extends ChangeNotifier {
     try {
       _setSync(SyncState.syncing);
       await _remote.pushNote(note, _key!, _deviceId);
+      _lastPushAt = DateTime.now().toUtc();
+      _lastPushedCount = 1;
       _setSync(SyncState.idle);
     } catch (error) {
       _setError(error.toString());
@@ -462,6 +494,7 @@ class NoterrController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _syncTimer?.cancel();
     _remoteSub?.cancel();
     super.dispose();
   }

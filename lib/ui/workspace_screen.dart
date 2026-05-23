@@ -764,11 +764,65 @@ class _SyncChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Tooltip(
         message: controller.error ?? text,
-        child: Chip(
+        child: ActionChip(
           avatar: Icon(icon, size: 18),
           label: Text(text),
+          onPressed: () => _showSyncDetails(context),
         ),
       ),
     );
+  }
+
+  void _showSyncDetails(BuildContext context) {
+    final account = controller.syncAccountId;
+    final error = controller.error;
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Sync status'),
+          content: SelectableText(
+            [
+              'Mode: ${controller.hasCloud ? 'Cloud' : 'Local only'}',
+              'State: ${controller.syncState.name}',
+              'Account: ${account == null ? 'not signed in' : _short(account)}',
+              'Device: ${_short(controller.deviceId)}',
+              'Notes here: ${controller.notes.length}',
+              'Last pull count: ${controller.lastPulledCount}',
+              'Last push count: ${controller.lastPushedCount}',
+              'Last sync: ${_time(controller.lastSyncAt)}',
+              'Last push: ${_time(controller.lastPushAt)}',
+              'Last live event: ${_time(controller.lastRemoteEventAt)}',
+              if (error != null) 'Error: $error',
+            ].join('\n'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(context).pop();
+                controller.syncNow();
+              },
+              icon: const Icon(Icons.sync),
+              label: const Text('Sync now'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _short(String value) {
+    if (value.length <= 8) return value;
+    return '${value.substring(0, 8)}...';
+  }
+
+  String _time(DateTime? value) {
+    if (value == null) return 'never';
+    final local = value.toLocal();
+    return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}';
   }
 }

@@ -70,6 +70,16 @@ open-window icon to show it as a separate desktop sticky note.
 
 ## Build Android APK
 
+For day-to-day mobile testing, prefer the live runner so you do not need to
+reinstall APKs after every change:
+
+```powershell
+.\Run-Mobile-Live-Sync.bat
+```
+
+Keep the terminal open. Press `r` for hot reload, `R` for hot restart, and `q`
+to quit.
+
 For a debug APK with cloud sync enabled:
 
 ```powershell
