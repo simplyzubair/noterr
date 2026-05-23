@@ -153,8 +153,9 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                 onText: widget.controller.updateTodayTask,
                 onRemove: widget.controller.removeTodayTask,
                 onClearDone: widget.controller.clearDoneTodayTasks,
-                onFloat:
-                    todo == null ? null : () => StickyWindowService.instance.show(todo),
+                onFloat: todo == null
+                    ? null
+                    : () => StickyWindowService.instance.show(todo),
               );
               final stickyPanel = _StickyNotesPanel(
                 notes: stickyNotes,
@@ -271,7 +272,8 @@ class _TodayTodoPanel extends StatelessWidget {
                 ),
                 IconButton(
                   tooltip: 'Clear done',
-                  onPressed: items.any((item) => item.done) ? onClearDone : null,
+                  onPressed:
+                      items.any((item) => item.done) ? onClearDone : null,
                   icon: const Icon(Icons.cleaning_services_outlined),
                 ),
               ],
@@ -436,11 +438,15 @@ class _TodoRowState extends State<_TodoRow> {
     return Material(
       color: widget.item.done
           ? Theme.of(context).colorScheme.surfaceContainerHighest
-          : Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.32),
+          : Theme.of(context)
+              .colorScheme
+              .primaryContainer
+              .withValues(alpha: 0.32),
       borderRadius: BorderRadius.circular(8),
       child: Row(
         children: [
-          Checkbox(value: widget.item.done, onChanged: (_) => widget.onToggle()),
+          Checkbox(
+              value: widget.item.done, onChanged: (_) => widget.onToggle()),
           Expanded(
             child: TextField(
               controller: _text,
@@ -483,7 +489,8 @@ class _StickyNotesPanel extends StatelessWidget {
   final List<Note> notes;
   final TextEditingController newSticky;
   final Future<void> Function() onCreate;
-  final Future<void> Function(Note note, {String? title, String? body}) onUpdate;
+  final Future<void> Function(Note note, {String? title, String? body})
+      onUpdate;
   final Future<void> Function(Note note) onFloat;
   final Future<void> Function(Note note) onDelete;
   final Future<void> Function(Note note, String colorHex) onColor;
@@ -562,7 +569,8 @@ class _StickyCard extends StatefulWidget {
   });
 
   final Note note;
-  final Future<void> Function(Note note, {String? title, String? body}) onUpdate;
+  final Future<void> Function(Note note, {String? title, String? body})
+      onUpdate;
   final VoidCallback onFloat;
   final VoidCallback onDelete;
   final ValueChanged<String> onColor;
@@ -728,7 +736,9 @@ class _HistoryScreen extends StatelessWidget {
                             else if (note.isArchived)
                               const Chip(label: Text('Archived')),
                             if (note.type == NoteType.checklist)
-                              Chip(label: Text('${note.checklist.length} tasks')),
+                              Chip(
+                                  label:
+                                      Text('${note.checklist.length} tasks')),
                           ],
                         ),
                       ),

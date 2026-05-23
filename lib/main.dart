@@ -67,11 +67,14 @@ Future<void> main(List<String> args) async {
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     await windowManager.ensureInitialized();
-    const options = WindowOptions(
-      size: Size(1180, 760),
-      minimumSize: Size(860, 560),
+    final options = WindowOptions(
+      size: AppConfig.mobilePreview
+          ? const Size(430, 860)
+          : const Size(1180, 760),
+      minimumSize:
+          AppConfig.mobilePreview ? const Size(390, 720) : const Size(860, 560),
       center: true,
-      title: 'Noterr',
+      title: AppConfig.mobilePreview ? 'Noterr Mobile Preview' : 'Noterr',
     );
     await windowManager.waitUntilReadyToShow(options, () async {
       await windowManager.show();
@@ -86,5 +89,10 @@ Future<void> main(List<String> args) async {
     );
   }
 
-  runApp(NoterrApp(hasCloud: AppConfig.hasSupabase));
+  runApp(
+    NoterrApp(
+      hasCloud: AppConfig.hasSupabase,
+      dataProfile: AppConfig.dataProfile,
+    ),
+  );
 }

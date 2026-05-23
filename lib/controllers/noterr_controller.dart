@@ -90,7 +90,8 @@ class NoterrController extends ChangeNotifier {
   List<String> get allBoards {
     final boards = _notes
         .where((note) => !note.isDeleted)
-        .map((note) => note.boardName.trim().isEmpty ? 'Personal' : note.boardName)
+        .map((note) =>
+            note.boardName.trim().isEmpty ? 'Personal' : note.boardName)
         .toSet()
         .toList();
     if (boards.isEmpty) boards.add('Personal');
@@ -173,8 +174,9 @@ class NoterrController extends ChangeNotifier {
       note.copyWith(
         checklist: note.checklist
             .map(
-              (current) =>
-                  current.id == item.id ? current.copyWith(text: text) : current,
+              (current) => current.id == item.id
+                  ? current.copyWith(text: text)
+                  : current,
             )
             .toList(),
       ),
@@ -296,8 +298,9 @@ class NoterrController extends ChangeNotifier {
   }
 
   Future<void> _ensurePasskeySession(String passphrase) async {
-    if (!hasCloud || _remote.currentUserId != null) return;
+    if (!hasCloud) return;
     final credentials = await VaultCrypto.syncCredentials(passphrase);
+    await _remote.signOut();
     try {
       await _remote.signIn(credentials.email, credentials.password);
     } on AuthException catch (error) {

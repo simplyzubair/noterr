@@ -20,8 +20,11 @@ class LocalVaultSnapshot {
 }
 
 class LocalVault {
-  LocalVault({FlutterSecureStorage? secureStorage})
-      : _secureStorage = secureStorage ?? const FlutterSecureStorage();
+  LocalVault({
+    FlutterSecureStorage? secureStorage,
+    String profile = '',
+  })  : _secureStorage = secureStorage ?? const FlutterSecureStorage(),
+        _profile = _cleanProfile(profile);
 
   static const _deviceIdKey = 'noterr_device_id';
   static const _saltKey = 'noterr_local_salt';
@@ -29,26 +32,35 @@ class LocalVault {
   static const _uuid = Uuid();
 
   final FlutterSecureStorage _secureStorage;
+  final String _profile;
+
+  static String _cleanProfile(String profile) {
+    final cleaned = profile.trim().replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    return cleaned.isEmpty ? '' : cleaned;
+  }
+
+  String get _keySuffix => _profile.isEmpty ? '' : '_$_profile';
 
   Future<String> getOrCreateDeviceId() async {
-    final existing = await _secureStorage.read(key: _deviceIdKey);
+    final existing = await _secureStorage.read(key: '$_deviceIdKey$_keySuffix');
     if (existing != null && existing.isNotEmpty) return existing;
     final next = _uuid.v4();
-    await _secureStorage.write(key: _deviceIdKey, value: next);
+    await _secureStorage.write(key: '$_deviceIdKey$_keySuffix', value: next);
     return next;
   }
 
   Future<String> getOrCreateLocalSalt() async {
-    final existing = await _secureStorage.read(key: _saltKey);
+    final existing = await _secureStorage.read(key: '$_saltKey$_keySuffix');
     if (existing != null && existing.isNotEmpty) return existing;
     final next = VaultCrypto.randomSalt();
-    await _secureStorage.write(key: _saltKey, value: next);
+    await _secureStorage.write(key: '$_saltKey$_keySuffix', value: next);
     return next;
   }
 
   Future<File> _vaultFile() async {
     final dir = await getApplicationSupportDirectory();
-    return File('${dir.path}${Platform.pathSeparator}$_fileName');
+    final name = _profile.isEmpty ? _fileName : 'noterr_vault_$_profile.json';
+    return File('${dir.path}${Platform.pathSeparator}$name');
   }
 
   Future<void> backUpVault({String suffix = 'backup'}) async {

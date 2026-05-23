@@ -10,9 +10,14 @@ import 'unlock_screen.dart';
 import 'workspace_screen.dart';
 
 class AuthGate extends StatefulWidget {
-  const AuthGate({super.key, required this.hasCloud});
+  const AuthGate({
+    super.key,
+    required this.hasCloud,
+    this.dataProfile = '',
+  });
 
   final bool hasCloud;
+  final String dataProfile;
 
   @override
   State<AuthGate> createState() => _AuthGateState();
@@ -28,7 +33,7 @@ class _AuthGateState extends State<AuthGate> {
         ? SupabaseRemoteSyncService(Supabase.instance.client)
         : const NoopRemoteSyncService();
     _controller = NoterrController(
-      localVault: LocalVault(),
+      localVault: LocalVault(profile: widget.dataProfile),
       remote: remote,
       widgetPublisher: WidgetPublisher(),
     );
