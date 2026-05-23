@@ -1,0 +1,32 @@
+name: noterr
+description: Local-first sticky notes for Windows and Android with encrypted sync.
+publish_to: "none"
+
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  collection: ^1.19.0
+  cryptography: ^2.7.0
+  desktop_multi_window: ^0.3.0
+  file_selector: ^1.1.0
+  flutter_secure_storage: ^10.2.0
+  intl: ^0.20.0
+  path_provider: ^2.1.5
+  supabase_flutter: ^2.8.4
+  url_launcher: ^6.3.1
+  uuid: ^4.5.1
+  window_manager: ^0.5.1
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
