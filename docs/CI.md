@@ -15,6 +15,12 @@ Add these secrets:
 
 Use the Noterr Supabase project values only.
 
+If GitHub CLI is installed and signed in, run this from the project folder:
+
+```powershell
+.\Set-GitHub-Secrets.ps1
+```
+
 ## Build Outputs
 
 The workflow uploads these artifacts:
