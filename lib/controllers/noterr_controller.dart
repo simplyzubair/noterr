@@ -241,7 +241,11 @@ class NoterrController extends ChangeNotifier {
   }
 
   Future<void> unlock(String passphrase) async {
+    if (passphrase.trim().isEmpty) {
+      throw ArgumentError('Enter a sync passkey.');
+    }
     _deviceId = await _localVault.getOrCreateDeviceId();
+    await _ensurePasskeySession(passphrase);
     final salt = hasCloud
         ? await _remote.getOrCreateVaultSalt()
         : await _localVault.getOrCreateLocalSalt();
@@ -265,6 +269,22 @@ class NoterrController extends ChangeNotifier {
     await syncNow();
     _subscribeRemote();
     await _publishWidget();
+  }
+
+  Future<void> _ensurePasskeySession(String passphrase) async {
+    if (!hasCloud || _remote.currentUserId != null) return;
+    final credentials = await VaultCrypto.syncCredentials(passphrase);
+    try {
+      await _remote.signIn(credentials.email, credentials.password);
+    } on AuthException catch (error) {
+      if (!error.message.toLowerCase().contains('invalid login credentials')) {
+        rethrow;
+      }
+      await _remote.signUp(credentials.email, credentials.password);
+      if (_remote.currentUserId == null) {
+        await _remote.signIn(credentials.email, credentials.password);
+      }
+    }
   }
 
   Future<Note> createNote({

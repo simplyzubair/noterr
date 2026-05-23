@@ -30,6 +30,13 @@ class EncryptedPayload {
       };
 }
 
+class SyncCredentials {
+  const SyncCredentials({required this.email, required this.password});
+
+  final String email;
+  final String password;
+}
+
 class VaultCrypto {
   VaultCrypto._();
 
@@ -58,6 +65,22 @@ class VaultCrypto {
     );
   }
 
+  static Future<SyncCredentials> syncCredentials(String passphrase) async {
+    final normalized = passphrase.trim();
+    final emailDigest = await Sha256().hash(
+      utf8.encode('noterr-sync-email:v1:$normalized'),
+    );
+    final passwordDigest = await Sha256().hash(
+      utf8.encode('noterr-sync-password:v1:$normalized'),
+    );
+    final emailId = _hex(emailDigest.bytes).substring(0, 40);
+    final password = base64UrlEncode(passwordDigest.bytes);
+    return SyncCredentials(
+      email: 'vault-$emailId@noterr.local',
+      password: 'Noterr-$password',
+    );
+  }
+
   static Future<EncryptedPayload> encryptJson(
     Map<String, dynamic> json,
     SecretKey key,
@@ -82,5 +105,9 @@ class VaultCrypto {
     );
     final clearBytes = await _aesGcm.decrypt(box, secretKey: key);
     return jsonDecode(utf8.decode(clearBytes)) as Map<String, dynamic>;
+  }
+
+  static String _hex(List<int> bytes) {
+    return bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
   }
 }

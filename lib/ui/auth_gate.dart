@@ -6,7 +6,6 @@ import '../services/local_vault.dart';
 import '../services/remote_sync_service.dart';
 import '../services/sticky_window_service.dart';
 import '../services/widget_publisher.dart';
-import 'login_screen.dart';
 import 'unlock_screen.dart';
 import 'workspace_screen.dart';
 
@@ -47,9 +46,6 @@ class _AuthGateState extends State<AuthGate> {
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
-        if (_controller.hasCloud && !_controller.isSignedIn) {
-          return LoginScreen(controller: _controller);
-        }
         if (!_controller.isUnlocked) {
           return UnlockScreen(controller: _controller);
         }
