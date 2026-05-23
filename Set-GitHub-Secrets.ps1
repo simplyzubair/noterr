@@ -3,7 +3,19 @@ $ErrorActionPreference = "Stop"
 $repo = "simplyzubair/noterr"
 $configPath = Join-Path $PSScriptRoot "sync_config.bat"
 
-if (!(Get-Command gh -ErrorAction SilentlyContinue)) {
+$ghCommand = Get-Command gh -ErrorAction SilentlyContinue
+if (!$ghCommand) {
+  $knownGhPaths = @(
+    "C:\Program Files\GitHub CLI\gh.exe",
+    "C:\Program Files (x86)\GitHub CLI\gh.exe",
+    "$env:LOCALAPPDATA\Programs\GitHub CLI\gh.exe"
+  )
+  $ghPath = $knownGhPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+} else {
+  $ghPath = $ghCommand.Source
+}
+
+if (!$ghPath) {
   Write-Host "GitHub CLI is not installed." -ForegroundColor Yellow
   Write-Host "Install it from https://cli.github.com/, then run this script again."
   exit 1
@@ -15,10 +27,10 @@ if (!(Test-Path $configPath)) {
   exit 1
 }
 
-$auth = gh auth status 2>&1
+& $ghPath auth status 2>&1 | Out-Host
 if ($LASTEXITCODE -ne 0) {
   Write-Host "GitHub CLI is not signed in." -ForegroundColor Yellow
-  Write-Host "Run: gh auth login"
+  Write-Host "Run: `"$ghPath`" auth login"
   exit 1
 }
 
@@ -31,7 +43,7 @@ if ([string]::IsNullOrWhiteSpace($url) -or [string]::IsNullOrWhiteSpace($key)) {
   exit 1
 }
 
-gh secret set NOTERR_SUPABASE_URL --repo $repo --body $url
-gh secret set NOTERR_SUPABASE_ANON_KEY --repo $repo --body $key
+& $ghPath secret set NOTERR_SUPABASE_URL --repo $repo --body $url
+& $ghPath secret set NOTERR_SUPABASE_ANON_KEY --repo $repo --body $key
 
 Write-Host "GitHub Actions secrets saved for $repo." -ForegroundColor Green
