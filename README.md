@@ -28,3 +28,4 @@ For local-only testing, omit the two `--dart-define` values.
 ## Build Artifacts
 
 Windows installer and Android APK steps are in [docs/BUILD.md](docs/BUILD.md).
+Continuous GitHub builds are documented in [docs/CI.md](docs/CI.md).

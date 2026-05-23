@@ -1,0 +1,104 @@
+name: Build Noterr
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  android:
+    name: Android APKs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test test/widget_test.dart test/sticky_window_payload_test.dart
+
+      - name: Build split release APKs
+        run: >
+          flutter build apk --release --split-per-abi
+          --dart-define=SUPABASE_URL="${{ secrets.NOTERR_SUPABASE_URL }}"
+          --dart-define=SUPABASE_ANON_KEY="${{ secrets.NOTERR_SUPABASE_ANON_KEY }}"
+
+      - name: Upload Android APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: noterr-android-apks
+          path: build/app/outputs/flutter-apk/*-release.apk
+
+  windows:
+    name: Windows App
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test test/widget_test.dart test/sticky_window_payload_test.dart
+
+      - name: Build Windows release
+        run: >
+          flutter build windows --release
+          --dart-define=SUPABASE_URL="${{ secrets.NOTERR_SUPABASE_URL }}"
+          --dart-define=SUPABASE_ANON_KEY="${{ secrets.NOTERR_SUPABASE_ANON_KEY }}"
+
+      - name: Zip Windows app
+        shell: pwsh
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath noterr-windows-release.zip -Force
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/noterr.iss'
+
+      - name: Upload Windows app zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: noterr-windows-release
+          path: noterr-windows-release.zip
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: noterr-windows-installer
+          path: installer/dist/NoterrSetup.exe
