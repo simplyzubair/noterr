@@ -14,16 +14,15 @@ class WidgetPublisher {
     final widgetNotes = visible
         .where((note) => note.showOnMobileWidget || note.popOnDesktop)
         .toList();
-    final todoNotes = widgetNotes
-        .where((note) => note.type == NoteType.checklist)
-        .toList();
-    final stickyNotes = widgetNotes
-        .where((note) => note.type != NoteType.checklist)
-        .toList();
+    final todoNotes =
+        widgetNotes.where((note) => note.type == NoteType.checklist).toList();
+    final stickyNotes =
+        widgetNotes.where((note) => note.type != NoteType.checklist).toList();
     final todayTodos =
         todoNotes.where((note) => note.boardName == 'Today').toList();
     final todayTodo = todayTodos.isEmpty ? null : todayTodos.first;
-    final primaryTodo = todayTodo ?? (todoNotes.isEmpty ? null : todoNotes.first);
+    final primaryTodo =
+        todayTodo ?? (todoNotes.isEmpty ? null : todoNotes.first);
     final primarySticky = stickyNotes.isEmpty ? null : stickyNotes.first;
     final primary = widgetNotes.isNotEmpty
         ? widgetNotes.first
@@ -37,6 +36,7 @@ class WidgetPublisher {
         'title': primary?.title ?? 'Noterr',
         'body': primary?.preview ?? 'No active notes',
         'colorHex': primary?.colorHex ?? 'FFF4B8',
+        'opacity': primary?.opacity ?? 1,
         'boardName': primary?.boardName ?? 'Personal',
         'type': primary?.type.name ?? NoteType.note.name,
         'popOnDesktop': primary?.popOnDesktop ?? true,
@@ -44,15 +44,18 @@ class WidgetPublisher {
         'todoTitle': primaryTodo?.title ?? 'Today To Do',
         'todoBody': _todoBody(primaryTodo),
         'todoColorHex': primaryTodo?.colorHex ?? 'E7F6EF',
+        'todoOpacity': primaryTodo?.opacity ?? 1,
         'stickyTitle': primarySticky?.title ?? 'Sticky Notes',
         'stickyBody': _stickyBody(stickyNotes),
         'stickyColorHex': primarySticky?.colorHex ?? 'FFF4B8',
+        'stickyOpacity': primarySticky?.opacity ?? 1,
         'notes': widgetNotes.take(8).map((note) {
           return {
             'id': note.id,
             'title': note.title,
             'body': note.preview,
             'colorHex': note.colorHex,
+            'opacity': note.opacity,
             'type': note.type.name,
             'popOnDesktop': note.popOnDesktop,
             'showOnMobileWidget': note.showOnMobileWidget,
@@ -65,6 +68,7 @@ class WidgetPublisher {
             'title': note.title,
             'body': _todoBody(note),
             'colorHex': note.colorHex,
+            'opacity': note.opacity,
             'updatedAt': note.updatedAt.toIso8601String(),
           };
         }).toList(),
@@ -74,6 +78,7 @@ class WidgetPublisher {
             'title': note.title,
             'body': note.preview,
             'colorHex': note.colorHex,
+            'opacity': note.opacity,
             'updatedAt': note.updatedAt.toIso8601String(),
           };
         }).toList(),

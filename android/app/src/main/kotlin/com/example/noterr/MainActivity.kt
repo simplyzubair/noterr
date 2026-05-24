@@ -26,9 +26,11 @@ class MainActivity : FlutterActivity() {
                 .putString("todo_title", call.argument<String>("todoTitle") ?: "Today To Do")
                 .putString("todo_body", call.argument<String>("todoBody") ?: "No tasks yet")
                 .putString("todo_color", call.argument<String>("todoColorHex") ?: "E7F6EF")
+                .putFloat("todo_opacity", (call.argument<Double>("todoOpacity") ?: 1.0).toFloat())
                 .putString("sticky_title", call.argument<String>("stickyTitle") ?: "Sticky Notes")
                 .putString("sticky_body", call.argument<String>("stickyBody") ?: "No sticky notes yet")
                 .putString("sticky_color", call.argument<String>("stickyColorHex") ?: "FFF4B8")
+                .putFloat("sticky_opacity", (call.argument<Double>("stickyOpacity") ?: 1.0).toFloat())
                 .apply()
 
             val manager = AppWidgetManager.getInstance(this)

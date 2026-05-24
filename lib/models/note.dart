@@ -131,7 +131,7 @@ class NoteAttachment {
         'localPath': localPath,
         'remotePath': remotePath,
         'sizeBytes': sizeBytes,
-  };
+      };
 }
 
 enum NoteType {
@@ -172,6 +172,7 @@ class Note {
     this.attachments = const [],
     this.reminder = const NoteReminder(dueAt: null),
     this.bounds,
+    this.opacity = 1.0,
     this.popOnDesktop = true,
     this.showOnMobileWidget = true,
     this.isPinned = false,
@@ -193,6 +194,7 @@ class Note {
       deviceId: deviceId,
       boardName: 'Personal',
       bounds: StickyBounds.defaults(),
+      opacity: 1,
       popOnDesktop: true,
     );
   }
@@ -219,11 +221,13 @@ class Note {
           .toList(),
       checklist: ((json['checklist'] as List?) ?? const [])
           .whereType<Map>()
-          .map((item) => ChecklistItem.fromJson(Map<String, dynamic>.from(item)))
+          .map(
+              (item) => ChecklistItem.fromJson(Map<String, dynamic>.from(item)))
           .toList(),
       attachments: ((json['attachments'] as List?) ?? const [])
           .whereType<Map>()
-          .map((item) => NoteAttachment.fromJson(Map<String, dynamic>.from(item)))
+          .map((item) =>
+              NoteAttachment.fromJson(Map<String, dynamic>.from(item)))
           .toList(),
       reminder: NoteReminder.fromJson(
         json['reminder'] == null
@@ -235,6 +239,7 @@ class Note {
             ? null
             : Map<String, dynamic>.from(json['bounds'] as Map),
       ),
+      opacity: ((json['opacity'] as num?)?.toDouble() ?? 1).clamp(0.45, 1),
       isPinned: json['isPinned'] as bool? ?? false,
       popOnDesktop: json['popOnDesktop'] as bool? ?? true,
       showOnMobileWidget: json['showOnMobileWidget'] as bool? ?? true,
@@ -260,6 +265,7 @@ class Note {
   final List<NoteAttachment> attachments;
   final NoteReminder reminder;
   final StickyBounds? bounds;
+  final double opacity;
   final bool popOnDesktop;
   final bool showOnMobileWidget;
   final bool isPinned;
@@ -308,6 +314,7 @@ class Note {
     List<NoteAttachment>? attachments,
     NoteReminder? reminder,
     StickyBounds? bounds,
+    double? opacity,
     bool? popOnDesktop,
     bool? showOnMobileWidget,
     bool? isPinned,
@@ -332,6 +339,7 @@ class Note {
       attachments: attachments ?? this.attachments,
       reminder: reminder ?? this.reminder,
       bounds: bounds ?? this.bounds,
+      opacity: opacity ?? this.opacity,
       popOnDesktop: popOnDesktop ?? this.popOnDesktop,
       showOnMobileWidget: showOnMobileWidget ?? this.showOnMobileWidget,
       isPinned: isPinned ?? this.isPinned,
@@ -358,6 +366,7 @@ class Note {
         'attachments': attachments.map((item) => item.toJson()).toList(),
         'reminder': reminder.toJson(),
         'bounds': bounds?.toJson(),
+        'opacity': opacity,
         'popOnDesktop': popOnDesktop,
         'showOnMobileWidget': showOnMobileWidget,
         'isPinned': isPinned,

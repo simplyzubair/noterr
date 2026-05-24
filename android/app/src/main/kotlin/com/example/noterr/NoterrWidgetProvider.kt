@@ -37,7 +37,11 @@ class NoterrTodoWidgetProvider : AppWidgetProvider() {
                 views.setInt(
                     R.id.widget_root,
                     "setBackgroundColor",
-                    parseWidgetColor(widgetData.getString("todo_color", "E7F6EF"), "#E7F6EF")
+                    parseWidgetColor(
+                        widgetData.getString("todo_color", "E7F6EF"),
+                        "#E7F6EF",
+                        widgetData.getFloat("todo_opacity", 1f)
+                    )
                 )
                 views.setOnClickPendingIntent(R.id.widget_root, openAppIntent(context))
                 appWidgetManager.updateAppWidget(widgetId, views)
@@ -75,7 +79,11 @@ class NoterrStickyWidgetProvider : AppWidgetProvider() {
                 views.setInt(
                     R.id.widget_root,
                     "setBackgroundColor",
-                    parseWidgetColor(widgetData.getString("sticky_color", "FFF4B8"), "#FFF4B8")
+                    parseWidgetColor(
+                        widgetData.getString("sticky_color", "FFF4B8"),
+                        "#FFF4B8",
+                        widgetData.getFloat("sticky_opacity", 1f)
+                    )
                 )
                 views.setOnClickPendingIntent(R.id.widget_root, openAppIntent(context))
                 appWidgetManager.updateAppWidget(widgetId, views)
@@ -84,13 +92,19 @@ class NoterrStickyWidgetProvider : AppWidgetProvider() {
     }
 }
 
-private fun parseWidgetColor(hex: String?, fallback: String): Int {
+private fun parseWidgetColor(hex: String?, fallback: String, opacity: Float): Int {
     val normalized = hex?.trim()?.removePrefix("#") ?: fallback.removePrefix("#")
-    return try {
+    val color = try {
         Color.parseColor("#$normalized")
     } catch (_: IllegalArgumentException) {
         Color.parseColor(fallback)
     }
+    return Color.argb(
+        (opacity.coerceIn(0.45f, 1f) * 255).toInt(),
+        Color.red(color),
+        Color.green(color),
+        Color.blue(color)
+    )
 }
 
 private fun openAppIntent(context: Context): PendingIntent {

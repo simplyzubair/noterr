@@ -104,6 +104,9 @@ class _StickyNoteWindowState extends State<StickyNoteWindow>
     if (note.isAlwaysOnTop != _note.isAlwaysOnTop) {
       await windowManager.setAlwaysOnTop(note.isAlwaysOnTop);
     }
+    if (note.opacity != _note.opacity) {
+      await windowManager.setOpacity(note.opacity);
+    }
     setState(() => _note = note);
   }
 
@@ -113,6 +116,7 @@ class _StickyNoteWindowState extends State<StickyNoteWindow>
     String? colorHex,
     List<ChecklistItem>? checklist,
     StickyBounds? bounds,
+    double? opacity,
     bool? popOnDesktop,
     bool? showOnMobileWidget,
     bool? isAlwaysOnTop,
@@ -123,6 +127,7 @@ class _StickyNoteWindowState extends State<StickyNoteWindow>
       colorHex: colorHex,
       checklist: checklist,
       bounds: bounds,
+      opacity: opacity,
       popOnDesktop: popOnDesktop,
       showOnMobileWidget: showOnMobileWidget,
       isAlwaysOnTop: isAlwaysOnTop,
@@ -166,15 +171,17 @@ class _StickyNoteWindowState extends State<StickyNoteWindow>
 
   Future<void> _makeWide() async {
     final bounds = await windowManager.getBounds();
-    await windowManager.setSize(Size(720, bounds.height < 360 ? 420 : bounds.height));
+    await windowManager
+        .setSize(Size(720, bounds.height < 360 ? 420 : bounds.height));
     await _saveBounds();
   }
 
   Future<void> _toggleChecklistItem(ChecklistItem item) async {
     await _save(
       checklist: _note.checklist
-          .map((current) =>
-              current.id == item.id ? current.copyWith(done: !current.done) : current)
+          .map((current) => current.id == item.id
+              ? current.copyWith(done: !current.done)
+              : current)
           .toList(),
     );
   }
@@ -231,6 +238,11 @@ class _StickyNoteWindowState extends State<StickyNoteWindow>
 
   Future<void> _toggleMobileWidget() {
     return _save(showOnMobileWidget: !_note.showOnMobileWidget);
+  }
+
+  Future<void> _setOpacity(double opacity) async {
+    await windowManager.setOpacity(opacity);
+    await _save(opacity: opacity);
   }
 
   Future<void> _runQuickAction(_StickyAction action) {
@@ -292,132 +304,152 @@ class _StickyNoteWindowState extends State<StickyNoteWindow>
       child: Scaffold(
         backgroundColor: color,
         body: Column(
-        children: [
-          _StickyTitleBar(
-            color: color,
-            note: _note,
-            isAlwaysOnTop: _note.isAlwaysOnTop,
-            rolledUp: _rolledUp,
-            onQuickAction: _runQuickAction,
-            onAlwaysOnTop: _toggleAlwaysOnTop,
-            onRollUp: _toggleRolledUp,
-            onWide: _makeWide,
-            onClose: _close,
-          ),
-          if (!_rolledUp)
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: _title,
-                      onChanged: (value) => _save(title: value),
-                      style: const TextStyle(
-                        color: Colors.black87,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 18,
+          children: [
+            _StickyTitleBar(
+              color: color,
+              note: _note,
+              isAlwaysOnTop: _note.isAlwaysOnTop,
+              rolledUp: _rolledUp,
+              onQuickAction: _runQuickAction,
+              onAlwaysOnTop: _toggleAlwaysOnTop,
+              onRollUp: _toggleRolledUp,
+              onWide: _makeWide,
+              onClose: _close,
+            ),
+            if (!_rolledUp)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: _title,
+                        onChanged: (value) => _save(title: value),
+                        style: const TextStyle(
+                          color: Colors.black87,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 18,
+                        ),
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          hintText: 'Title',
+                        ),
                       ),
-                      decoration: const InputDecoration(
-                        border: InputBorder.none,
-                        hintText: 'Title',
-                      ),
-                    ),
-                    Expanded(
-                      child: ListView(
-                        padding: EdgeInsets.zero,
-                        children: [
-                          if (supportsBody)
-                            SizedBox(
-                              height: _note.type == NoteType.full ? 120 : 190,
-                              child: TextField(
-                                controller: _body,
-                                onChanged: (value) => _save(body: value),
-                                expands: true,
-                                maxLines: null,
-                                minLines: null,
-                                textAlignVertical: TextAlignVertical.top,
-                                style: const TextStyle(
-                                  color: Colors.black87,
-                                  fontSize: 15,
-                                ),
-                                decoration: const InputDecoration(
-                                  border: InputBorder.none,
-                                  hintText: 'Write a note',
-                                ),
-                              ),
-                            ),
-                          if (supportsChecklist) ...[
-                            const SizedBox(height: 8),
-                            if (_note.checklist.isEmpty)
-                              const Text(
-                                'No checklist items',
-                                style: TextStyle(color: Colors.black54),
-                              )
-                            else
-                              ..._note.checklist.map((item) {
-                                return Row(
-                                  key: ValueKey(item.id),
-                                  children: [
-                                    Checkbox(
-                                      value: item.done,
-                                      onChanged: (_) =>
-                                          _toggleChecklistItem(item),
-                                    ),
-                                    Expanded(
-                                      child: _StickyChecklistField(
-                                        item: item,
-                                        focusNode:
-                                            _focusNodeForChecklistItem(item),
-                                        onText: (value) =>
-                                            _updateChecklistItem(item, value),
-                                        onEnter: () =>
-                                            _addChecklistItemAfter(item),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              }),
-                          ],
-                        ],
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        if (supportsChecklist)
-                          IconButton(
-                            tooltip: 'Add checklist item',
-                            onPressed: _addChecklistItem,
-                            icon: const Icon(Icons.add_task, size: 18),
-                          ),
-                        ...notePalette.take(6).map(
-                              (hex) => Padding(
-                                padding: const EdgeInsets.only(right: 6),
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(99),
-                                  onTap: () => _save(colorHex: hex),
-                                  child: DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      color: noteColor(hex),
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: _note.colorHex == hex
-                                            ? Colors.black87
-                                            : Colors.black26,
-                                        width: _note.colorHex == hex ? 2 : 1,
-                                      ),
-                                    ),
-                                    child: const SizedBox.square(dimension: 18),
+                      Expanded(
+                        child: ListView(
+                          padding: EdgeInsets.zero,
+                          children: [
+                            if (supportsBody)
+                              SizedBox(
+                                height: _note.type == NoteType.full ? 120 : 190,
+                                child: TextField(
+                                  controller: _body,
+                                  onChanged: (value) => _save(body: value),
+                                  expands: true,
+                                  maxLines: null,
+                                  minLines: null,
+                                  textAlignVertical: TextAlignVertical.top,
+                                  style: const TextStyle(
+                                    color: Colors.black87,
+                                    fontSize: 15,
+                                  ),
+                                  decoration: const InputDecoration(
+                                    border: InputBorder.none,
+                                    hintText: 'Write a note',
                                   ),
                                 ),
                               ),
+                            if (supportsChecklist) ...[
+                              const SizedBox(height: 8),
+                              if (_note.checklist.isEmpty)
+                                const Text(
+                                  'No checklist items',
+                                  style: TextStyle(color: Colors.black54),
+                                )
+                              else
+                                ..._note.checklist.map((item) {
+                                  return Row(
+                                    key: ValueKey(item.id),
+                                    children: [
+                                      Checkbox(
+                                        value: item.done,
+                                        onChanged: (_) =>
+                                            _toggleChecklistItem(item),
+                                      ),
+                                      Expanded(
+                                        child: _StickyChecklistField(
+                                          item: item,
+                                          focusNode:
+                                              _focusNodeForChecklistItem(item),
+                                          onText: (value) =>
+                                              _updateChecklistItem(item, value),
+                                          onEnter: () =>
+                                              _addChecklistItemAfter(item),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                }),
+                            ],
+                          ],
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          if (supportsChecklist)
+                            IconButton(
+                              tooltip: 'Add checklist item',
+                              onPressed: _addChecklistItem,
+                              icon: const Icon(Icons.add_task, size: 18),
                             ),
-                      ],
-                    ),
-                  ],
+                          ...notePalette.take(6).map(
+                                (hex) => Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(99),
+                                    onTap: () => _save(colorHex: hex),
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        color: noteColor(hex),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: _note.colorHex == hex
+                                              ? Colors.black87
+                                              : Colors.black26,
+                                          width: _note.colorHex == hex ? 2 : 1,
+                                        ),
+                                      ),
+                                      child:
+                                          const SizedBox.square(dimension: 18),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          const Icon(Icons.opacity,
+                              size: 18, color: Colors.black87),
+                          Expanded(
+                            child: Slider(
+                              value: _note.opacity.clamp(0.45, 1),
+                              min: 0.45,
+                              max: 1,
+                              divisions: 11,
+                              onChanged: _setOpacity,
+                            ),
+                          ),
+                          Text(
+                            '${(_note.opacity * 100).round()}%',
+                            style: const TextStyle(color: Colors.black87),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -528,7 +560,9 @@ List<PopupMenuEntry<_StickyAction>> _quickMenuItems(Note note) {
       value: _StickyAction.phoneWidget,
       child: ListTile(
         leading: Icon(
-          note.showOnMobileWidget ? Icons.phone_android : Icons.phone_android_outlined,
+          note.showOnMobileWidget
+              ? Icons.phone_android
+              : Icons.phone_android_outlined,
         ),
         title: Text(
           note.showOnMobileWidget
@@ -541,7 +575,9 @@ List<PopupMenuEntry<_StickyAction>> _quickMenuItems(Note note) {
     PopupMenuItem(
       value: _StickyAction.desktopPopup,
       child: ListTile(
-        leading: Icon(note.popOnDesktop ? Icons.desktop_windows : Icons.desktop_access_disabled),
+        leading: Icon(note.popOnDesktop
+            ? Icons.desktop_windows
+            : Icons.desktop_access_disabled),
         title: Text(
           note.popOnDesktop ? 'Stop desktop popups' : 'Pop up on desktop',
         ),
@@ -620,7 +656,8 @@ class _StickyTitleBar extends StatelessWidget {
               onPanStart: (_) => windowManager.startDragging(),
               child: const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                child: Icon(Icons.drag_indicator, size: 18, color: Colors.black54),
+                child:
+                    Icon(Icons.drag_indicator, size: 18, color: Colors.black54),
               ),
             ),
             const Spacer(),
@@ -628,10 +665,12 @@ class _StickyTitleBar extends StatelessWidget {
               tooltip: 'Quick actions',
               onSelected: onQuickAction,
               itemBuilder: (_) => _quickMenuItems(note),
-              icon: const Icon(Icons.more_vert, size: 18, color: Colors.black87),
+              icon:
+                  const Icon(Icons.more_vert, size: 18, color: Colors.black87),
             ),
             IconButton(
-              tooltip: isAlwaysOnTop ? 'Disable always on top' : 'Always on top',
+              tooltip:
+                  isAlwaysOnTop ? 'Disable always on top' : 'Always on top',
               onPressed: onAlwaysOnTop,
               icon: Icon(
                 isAlwaysOnTop
@@ -653,7 +692,8 @@ class _StickyTitleBar extends StatelessWidget {
             IconButton(
               tooltip: 'Make wide',
               onPressed: onWide,
-              icon: const Icon(Icons.open_in_full, size: 18, color: Colors.black87),
+              icon: const Icon(Icons.open_in_full,
+                  size: 18, color: Colors.black87),
             ),
             IconButton(
               tooltip: 'Close sticky note',

@@ -120,8 +120,17 @@ class NoterrController extends ChangeNotifier {
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   }
 
+  List<Note> get workspaceItems {
+    return _notes.where((note) {
+      return !note.isDeleted && !note.isArchived;
+    }).toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  }
+
   List<Note> get historyNotes {
-    return [..._notes]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    final oldest = DateTime.now().toUtc().subtract(const Duration(days: 7));
+    return _notes.where((note) => note.updatedAt.isAfter(oldest)).toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   }
 
   Future<Note> ensureTodayTodoNote() async {
@@ -201,6 +210,67 @@ class NoterrController extends ChangeNotifier {
   Future<void> removeTodayTask(ChecklistItem item) async {
     final note = await ensureTodayTodoNote();
     await updateNote(
+      note.copyWith(
+        checklist:
+            note.checklist.where((current) => current.id != item.id).toList(),
+      ),
+    );
+  }
+
+  Future<ChecklistItem> addChecklistItem(Note note, {String text = ''}) async {
+    final next = ChecklistItem(text: text);
+    await updateNote(note.copyWith(checklist: [...note.checklist, next]));
+    return next;
+  }
+
+  Future<ChecklistItem> addChecklistItemAfter(
+      Note note, ChecklistItem item) async {
+    final next = ChecklistItem(text: '');
+    final items = [...note.checklist];
+    final index = items.indexWhere((current) => current.id == item.id);
+    if (index == -1) {
+      items.add(next);
+    } else {
+      items.insert(index + 1, next);
+    }
+    await updateNote(note.copyWith(checklist: items));
+    return next;
+  }
+
+  Future<void> updateChecklistItem(
+    Note note,
+    ChecklistItem item,
+    String text,
+  ) {
+    return updateNote(
+      note.copyWith(
+        checklist: note.checklist
+            .map(
+              (current) => current.id == item.id
+                  ? current.copyWith(text: text)
+                  : current,
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  Future<void> toggleChecklistItem(Note note, ChecklistItem item) {
+    return updateNote(
+      note.copyWith(
+        checklist: note.checklist
+            .map(
+              (current) => current.id == item.id
+                  ? current.copyWith(done: !current.done)
+                  : current,
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  Future<void> removeChecklistItem(Note note, ChecklistItem item) {
+    return updateNote(
       note.copyWith(
         checklist:
             note.checklist.where((current) => current.id != item.id).toList(),
@@ -317,14 +387,19 @@ class NoterrController extends ChangeNotifier {
   Future<Note> createNote({
     String boardName = 'Personal',
     NoteType type = NoteType.note,
+    String? title,
+    String? body,
   }) async {
     final note = Note.blank(_deviceId, type: type).copyWith(
       boardName: boardName,
-      title: switch (type) {
-        NoteType.note => 'Sticky note',
-        NoteType.checklist => 'Todo',
-        NoteType.full => 'Full note',
-      },
+      title: title?.trim().isNotEmpty == true
+          ? title!.trim()
+          : switch (type) {
+              NoteType.note => 'Sticky note',
+              NoteType.checklist => 'Checklist',
+              NoteType.full => 'Full note',
+            },
+      body: body,
     );
     _notes.add(note);
     await _persistAndPush(note);

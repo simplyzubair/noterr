@@ -37,6 +37,7 @@ Future<void> main(List<String> args) async {
       );
       await windowManager.waitUntilReadyToShow(options, () async {
         await windowManager.setPosition(Offset(bounds.x, bounds.y));
+        await windowManager.setOpacity(note.opacity);
         await windowManager.show();
         await windowManager.focus();
       });

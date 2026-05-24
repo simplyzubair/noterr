@@ -1,4 +1,9 @@
+import 'dart:async';
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
+import 'package:tray_manager/tray_manager.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../controllers/noterr_controller.dart';
 import '../models/note.dart';
@@ -14,17 +19,20 @@ class WorkspaceScreen extends StatefulWidget {
   State<WorkspaceScreen> createState() => _WorkspaceScreenState();
 }
 
-class _WorkspaceScreenState extends State<WorkspaceScreen> {
-  final _quickTask = TextEditingController();
-  final _newSticky = TextEditingController();
-  final _quickTaskFocus = FocusNode();
-  final Map<String, FocusNode> _taskFocusNodes = {};
-  String? _pendingTaskFocusId;
-  double _splitRatio = 0.5;
+class _WorkspaceScreenState extends State<WorkspaceScreen>
+    with WindowListener, TrayListener {
+  final _quickText = TextEditingController();
+  NoteType _quickType = NoteType.checklist;
+  bool _allowClose = false;
 
   @override
   void initState() {
     super.initState();
+    if (_isDesktop) {
+      windowManager.addListener(this);
+      trayManager.addListener(this);
+      unawaited(_initDesktopShell());
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.controller.ensureTodayTodoNote();
     });
@@ -32,74 +40,111 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
 
   @override
   void dispose() {
-    _quickTask.dispose();
-    _newSticky.dispose();
-    _quickTaskFocus.dispose();
-    for (final node in _taskFocusNodes.values) {
-      node.dispose();
+    _quickText.dispose();
+    if (_isDesktop) {
+      windowManager.removeListener(this);
+      trayManager.removeListener(this);
     }
     super.dispose();
   }
 
-  Future<void> _addTask([String? text]) async {
-    final value = (text ?? _quickTask.text).trim();
-    if (value.isEmpty) {
-      _refocusQuickTask();
+  bool get _isDesktop =>
+      Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
+  Future<void> _initDesktopShell() async {
+    try {
+      await windowManager.setPreventClose(true);
+      await trayManager.setIcon('windows/runner/resources/app_icon.ico');
+      await trayManager.setToolTip('Noterr');
+      await trayManager.setContextMenu(
+        Menu(
+          items: [
+            MenuItem(key: 'show_window', label: 'Open Noterr'),
+            MenuItem.separator(),
+            MenuItem(key: 'exit_app', label: 'Exit Noterr'),
+          ],
+        ),
+      );
+    } catch (_) {
+      // Desktop shell plugins are unavailable in widget tests.
+    }
+  }
+
+  @override
+  void onWindowClose() {
+    if (_allowClose) {
+      windowManager.destroy();
       return;
     }
-    _quickTask.clear();
-    await widget.controller.addTodayTask(value);
-    _refocusQuickTask();
+    unawaited(_hideToTray());
   }
 
-  void _refocusQuickTask() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _quickTaskFocus.requestFocus();
-    });
+  @override
+  void onTrayIconMouseDown() {
+    unawaited(_showFromTray());
   }
 
-  Future<void> _addTaskAfter(ChecklistItem item) async {
-    final next = await widget.controller.addTodayTaskAfter(item);
-    setState(() => _pendingTaskFocusId = next.id);
+  @override
+  void onTrayIconRightMouseDown() {
+    trayManager.popUpContextMenu();
   }
 
-  Future<void> _createSticky() async {
-    final text = _newSticky.text.trim();
-    if (text.isEmpty) return;
-    _newSticky.clear();
-    final note = await widget.controller.createNote(type: NoteType.note);
-    final updated = note.copyWith(
-      title: text.length > 36 ? '${text.substring(0, 36)}...' : text,
-      body: text,
-      popOnDesktop: true,
-      showOnMobileWidget: true,
-      colorHex: 'FFF4B8',
-    );
-    await widget.controller.updateNote(updated);
-    await StickyWindowService.instance.show(updated);
-  }
-
-  Future<void> _updateSticky(Note note, {String? title, String? body}) {
-    return widget.controller.updateNote(
-      note.copyWith(
-        title: title,
-        body: body,
-        popOnDesktop: true,
-        showOnMobileWidget: true,
-      ),
-    );
-  }
-
-  FocusNode _focusNodeForTask(ChecklistItem item) {
-    final node = _taskFocusNodes.putIfAbsent(item.id, FocusNode.new);
-    if (_pendingTaskFocusId == item.id) {
-      _pendingTaskFocusId = null;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) node.requestFocus();
-      });
+  @override
+  void onTrayMenuItemClick(MenuItem menuItem) {
+    switch (menuItem.key) {
+      case 'show_window':
+        unawaited(_showFromTray());
+      case 'exit_app':
+        unawaited(_exitApp());
     }
-    return node;
+  }
+
+  Future<void> _hideToTray() async {
+    try {
+      await windowManager.setSkipTaskbar(true);
+      await windowManager.hide();
+    } catch (_) {}
+  }
+
+  Future<void> _showFromTray() async {
+    try {
+      await windowManager.setSkipTaskbar(false);
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (_) {}
+  }
+
+  Future<void> _exitApp() async {
+    _allowClose = true;
+    try {
+      await windowManager.setPreventClose(false);
+      await trayManager.destroy();
+      await StickyWindowService.instance.closeAll();
+      await windowManager.destroy();
+    } catch (_) {}
+  }
+
+  Future<void> _createQuickItem() async {
+    final text = _quickText.text.trim();
+    if (text.isEmpty && _quickType == NoteType.note) return;
+    _quickText.clear();
+
+    if (_quickType == NoteType.checklist) {
+      final note = await widget.controller.createNote(
+        type: NoteType.checklist,
+        boardName: 'Lists',
+        title: text.isEmpty ? 'Checklist' : text,
+      );
+      await widget.controller.addChecklistItem(note);
+      return;
+    }
+
+    final note = await widget.controller.createNote(
+      type: NoteType.note,
+      title: _shortTitle(text, fallback: 'Sticky note'),
+      body: text,
+    );
+    await StickyWindowService.instance.show(note);
   }
 
   void _openHistory() {
@@ -110,13 +155,23 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     );
   }
 
+  void _openItem(Note note) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _ItemDetailScreen(
+          controller: widget.controller,
+          noteId: note.id,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: widget.controller,
       builder: (context, _) {
-        final todo = widget.controller.todayTodoNote;
-        final stickyNotes = widget.controller.stickyNotes;
+        final items = widget.controller.workspaceItems;
         return Scaffold(
           appBar: AppBar(
             title: const Text('Noterr'),
@@ -137,75 +192,44 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                 onPressed: widget.controller.lock,
                 icon: const Icon(Icons.lock_outline),
               ),
+              if (_isDesktop)
+                IconButton(
+                  tooltip: 'Exit Noterr',
+                  onPressed: _exitApp,
+                  icon: const Icon(Icons.power_settings_new),
+                ),
             ],
           ),
-          body: LayoutBuilder(
-            builder: (context, constraints) {
-              final narrow = constraints.maxWidth < 860;
-              final todoPanel = _TodayTodoPanel(
-                note: todo,
-                quickTask: _quickTask,
-                quickTaskFocus: _quickTaskFocus,
-                focusNodeForTask: _focusNodeForTask,
-                onAddTask: _addTask,
-                onAddAfter: _addTaskAfter,
-                onToggle: widget.controller.toggleTodayTask,
-                onText: widget.controller.updateTodayTask,
-                onRemove: widget.controller.removeTodayTask,
-                onClearDone: widget.controller.clearDoneTodayTasks,
-                onFloat: todo == null
-                    ? null
-                    : () => StickyWindowService.instance.show(todo),
-              );
-              final stickyPanel = _StickyNotesPanel(
-                notes: stickyNotes,
-                newSticky: _newSticky,
-                onCreate: _createSticky,
-                onUpdate: _updateSticky,
-                onFloat: StickyWindowService.instance.show,
-                onDelete: widget.controller.softDeleteNote,
-                onColor: (note, colorHex) => widget.controller.updateNote(
-                  note.copyWith(colorHex: colorHex),
+          body: SafeArea(
+            child: Column(
+              children: [
+                _QuickCreateBar(
+                  controller: _quickText,
+                  type: _quickType,
+                  onTypeChanged: (type) => setState(() => _quickType = type),
+                  onCreate: _createQuickItem,
                 ),
-              );
-              if (narrow) {
-                return ListView(
-                  padding: const EdgeInsets.all(14),
-                  children: [
-                    SizedBox(height: 520, child: todoPanel),
-                    const SizedBox(height: 12),
-                    SizedBox(height: 520, child: stickyPanel),
-                  ],
-                );
-              }
-              final dividerWidth = 12.0;
-              final available = constraints.maxWidth - dividerWidth;
-              final leftWidth = available * _splitRatio;
-              final rightWidth = available - leftWidth;
-              return Row(
-                children: [
-                  SizedBox(width: leftWidth, child: todoPanel),
-                  MouseRegion(
-                    cursor: SystemMouseCursors.resizeColumn,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onHorizontalDragUpdate: (details) {
-                        setState(() {
-                          _splitRatio =
-                              (_splitRatio + details.delta.dx / available)
-                                  .clamp(0.28, 0.72);
-                        });
-                      },
-                      child: const SizedBox(
-                        width: 12,
-                        child: VerticalDivider(width: 1),
-                      ),
-                    ),
-                  ),
-                  SizedBox(width: rightWidth, child: stickyPanel),
-                ],
-              );
-            },
+                Expanded(
+                  child: items.isEmpty
+                      ? const Center(child: Text('Add a note or checklist.'))
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(14),
+                          itemCount: items.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final note = items[index];
+                            return _ItemCard(
+                              key: ValueKey(note.id),
+                              note: note,
+                              controller: widget.controller,
+                              onOpen: () => _openItem(note),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -213,121 +237,70 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   }
 }
 
-class _TodayTodoPanel extends StatelessWidget {
-  const _TodayTodoPanel({
-    required this.note,
-    required this.quickTask,
-    required this.quickTaskFocus,
-    required this.focusNodeForTask,
-    required this.onAddTask,
-    required this.onAddAfter,
-    required this.onToggle,
-    required this.onText,
-    required this.onRemove,
-    required this.onClearDone,
-    required this.onFloat,
+class _QuickCreateBar extends StatelessWidget {
+  const _QuickCreateBar({
+    required this.controller,
+    required this.type,
+    required this.onTypeChanged,
+    required this.onCreate,
   });
 
-  final Note? note;
-  final TextEditingController quickTask;
-  final FocusNode quickTaskFocus;
-  final FocusNode Function(ChecklistItem item) focusNodeForTask;
-  final Future<void> Function([String? text]) onAddTask;
-  final Future<void> Function(ChecklistItem item) onAddAfter;
-  final Future<void> Function(ChecklistItem item) onToggle;
-  final Future<void> Function(ChecklistItem item, String text) onText;
-  final Future<void> Function(ChecklistItem item) onRemove;
-  final Future<void> Function() onClearDone;
-  final VoidCallback? onFloat;
+  final TextEditingController controller;
+  final NoteType type;
+  final ValueChanged<NoteType> onTypeChanged;
+  final VoidCallback onCreate;
 
   @override
   Widget build(BuildContext context) {
-    final items = note?.checklist ?? const <ChecklistItem>[];
-    final activeItems = items.where((item) => !item.done).toList();
-    final doneItems = items.where((item) => item.done).toList();
-    final doneCount = doneItems.length;
     return ColoredBox(
-      color: Theme.of(context).colorScheme.surface,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                const Icon(Icons.check_circle_outline, size: 28),
-                const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    'Today To Do',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+                  child: SegmentedButton<NoteType>(
+                    segments: const [
+                      ButtonSegment(
+                        value: NoteType.checklist,
+                        icon: Icon(Icons.checklist),
+                        label: Text('Checklist'),
+                      ),
+                      ButtonSegment(
+                        value: NoteType.note,
+                        icon: Icon(Icons.sticky_note_2_outlined),
+                        label: Text('Note'),
+                      ),
+                    ],
+                    selected: {type},
+                    onSelectionChanged: (selected) =>
+                        onTypeChanged(selected.first),
                   ),
-                ),
-                IconButton(
-                  tooltip: 'Show as desktop sticky',
-                  onPressed: onFloat,
-                  icon: const Icon(Icons.open_in_new),
-                ),
-                IconButton(
-                  tooltip: 'Clear done',
-                  onPressed:
-                      items.any((item) => item.done) ? onClearDone : null,
-                  icon: const Icon(Icons.cleaning_services_outlined),
                 ),
               ],
             ),
-            Text(
-              '${items.length - doneCount} left, $doneCount done',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             TextField(
-              controller: quickTask,
-              focusNode: quickTaskFocus,
+              controller: controller,
               textInputAction: TextInputAction.done,
-              onSubmitted: onAddTask,
+              onSubmitted: (_) => onCreate(),
               decoration: InputDecoration(
-                hintText: 'Type a task and press Enter',
-                prefixIcon: const Icon(Icons.add_task),
+                hintText: type == NoteType.checklist
+                    ? 'Name a checklist and press Enter'
+                    : 'Write a sticky note and press Enter',
+                prefixIcon: Icon(
+                  type == NoteType.checklist
+                      ? Icons.add_task
+                      : Icons.note_add_outlined,
+                ),
                 suffixIcon: IconButton(
-                  tooltip: 'Add task',
-                  onPressed: onAddTask,
+                  tooltip: 'Add',
+                  onPressed: onCreate,
                   icon: const Icon(Icons.add),
                 ),
               ),
-            ),
-            const SizedBox(height: 14),
-            Expanded(
-              child: items.isEmpty
-                  ? const Center(child: Text('Nothing yet. Add one task.'))
-                  : ListView(
-                      children: [
-                        if (activeItems.isNotEmpty)
-                          _TodoSection(
-                            title: 'Next',
-                            items: activeItems,
-                            focusNodeForTask: focusNodeForTask,
-                            onToggle: onToggle,
-                            onText: onText,
-                            onEnter: onAddAfter,
-                            onRemove: onRemove,
-                          ),
-                        if (doneItems.isNotEmpty) ...[
-                          const SizedBox(height: 14),
-                          _TodoSection(
-                            title: 'Done',
-                            items: doneItems,
-                            focusNodeForTask: focusNodeForTask,
-                            onToggle: onToggle,
-                            onText: onText,
-                            onEnter: onAddAfter,
-                            onRemove: onRemove,
-                          ),
-                        ],
-                      ],
-                    ),
             ),
           ],
         ),
@@ -336,57 +309,362 @@ class _TodayTodoPanel extends StatelessWidget {
   }
 }
 
-class _TodoSection extends StatelessWidget {
-  const _TodoSection({
-    required this.title,
-    required this.items,
-    required this.focusNodeForTask,
-    required this.onToggle,
-    required this.onText,
-    required this.onEnter,
-    required this.onRemove,
+class _ItemCard extends StatelessWidget {
+  const _ItemCard({
+    super.key,
+    required this.note,
+    required this.controller,
+    required this.onOpen,
   });
 
-  final String title;
-  final List<ChecklistItem> items;
-  final FocusNode Function(ChecklistItem item) focusNodeForTask;
-  final Future<void> Function(ChecklistItem item) onToggle;
-  final Future<void> Function(ChecklistItem item, String text) onText;
-  final Future<void> Function(ChecklistItem item) onEnter;
-  final Future<void> Function(ChecklistItem item) onRemove;
+  final Note note;
+  final NoterrController controller;
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w800,
+    final activeCount = note.checklist.where((item) => !item.done).length;
+    final doneCount = note.checklist.length - activeCount;
+    return Material(
+      color: noteColor(note.colorHex).withValues(alpha: note.opacity),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    note.type == NoteType.checklist
+                        ? Icons.checklist
+                        : Icons.sticky_note_2_outlined,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      note.title.isEmpty ? 'Untitled' : note.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Show as desktop sticky',
+                    onPressed: () => StickyWindowService.instance.show(note),
+                    icon: const Icon(Icons.open_in_new),
+                  ),
+                  PopupMenuButton<_CardAction>(
+                    tooltip: 'More',
+                    onSelected: (action) {
+                      switch (action) {
+                        case _CardAction.archive:
+                          controller.archiveNote(note, true);
+                        case _CardAction.delete:
+                          controller.softDeleteNote(note);
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: _CardAction.archive,
+                        child: ListTile(
+                          leading: Icon(Icons.archive_outlined),
+                          title: Text('Archive'),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: _CardAction.delete,
+                        child: ListTile(
+                          leading: Icon(Icons.delete_outline),
+                          title: Text('Delete'),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
+              const SizedBox(height: 6),
+              if (note.type == NoteType.checklist)
+                Text('$activeCount left, $doneCount done')
+              else
+                Text(
+                  note.preview.isEmpty ? 'No text yet' : note.preview,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  if (note.showOnMobileWidget)
+                    const Chip(
+                      avatar: Icon(Icons.phone_android, size: 16),
+                      label: Text('Widget'),
+                    ),
+                  if (note.popOnDesktop)
+                    const Chip(
+                      avatar: Icon(Icons.desktop_windows, size: 16),
+                      label: Text('Desktop'),
+                    ),
+                ],
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 8),
-        ...items.map((item) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: _TodoRow(
-              item: item,
-              focusNode: focusNodeForTask(item),
-              onToggle: () => onToggle(item),
-              onText: (text) => onText(item, text),
-              onEnter: () => onEnter(item),
-              onRemove: () => onRemove(item),
-            ),
+      ),
+    );
+  }
+}
+
+enum _CardAction { archive, delete }
+
+class _ItemDetailScreen extends StatelessWidget {
+  const _ItemDetailScreen({
+    required this.controller,
+    required this.noteId,
+  });
+
+  final NoterrController controller;
+  final String noteId;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final note =
+            controller.notes.where((item) => item.id == noteId).firstOrNull;
+        if (note == null) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Noterr')),
+            body: const Center(child: Text('This item is no longer here.')),
           );
-        }),
+        }
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(note.type == NoteType.checklist ? 'Checklist' : 'Note'),
+            actions: [
+              IconButton(
+                tooltip: 'Show as desktop sticky',
+                onPressed: () => StickyWindowService.instance.show(note),
+                icon: const Icon(Icons.open_in_new),
+              ),
+              IconButton(
+                tooltip: note.isArchived ? 'Unarchive' : 'Archive',
+                onPressed: () => controller.archiveNote(note, !note.isArchived),
+                icon: Icon(
+                  note.isArchived ? Icons.unarchive : Icons.archive_outlined,
+                ),
+              ),
+            ],
+          ),
+          body: _ItemEditor(controller: controller, note: note),
+        );
+      },
+    );
+  }
+}
+
+class _ItemEditor extends StatefulWidget {
+  const _ItemEditor({
+    required this.controller,
+    required this.note,
+  });
+
+  final NoterrController controller;
+  final Note note;
+
+  @override
+  State<_ItemEditor> createState() => _ItemEditorState();
+}
+
+class _ItemEditorState extends State<_ItemEditor> {
+  late final TextEditingController _title;
+  late final TextEditingController _body;
+  final Map<String, FocusNode> _focusNodes = {};
+  String? _pendingFocusId;
+
+  @override
+  void initState() {
+    super.initState();
+    _title = TextEditingController(text: widget.note.title);
+    _body = TextEditingController(text: widget.note.body);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ItemEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.note.id != widget.note.id) {
+      _title.text = widget.note.title;
+      _body.text = widget.note.body;
+      return;
+    }
+    if (_title.text != widget.note.title) _title.text = widget.note.title;
+    if (_body.text != widget.note.body) _body.text = widget.note.body;
+  }
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _body.dispose();
+    for (final node in _focusNodes.values) {
+      node.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _addChecklistItem([ChecklistItem? after]) async {
+    final next = after == null
+        ? await widget.controller.addChecklistItem(widget.note)
+        : await widget.controller.addChecklistItemAfter(widget.note, after);
+    setState(() => _pendingFocusId = next.id);
+  }
+
+  FocusNode _focusNodeFor(ChecklistItem item) {
+    final node = _focusNodes.putIfAbsent(item.id, FocusNode.new);
+    if (_pendingFocusId == item.id) {
+      _pendingFocusId = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) node.requestFocus();
+      });
+    }
+    return node;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final note = widget.note;
+    return ListView(
+      padding: const EdgeInsets.all(14),
+      children: [
+        Material(
+          color: noteColor(note.colorHex).withValues(alpha: note.opacity),
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: _title,
+                  onChanged: (value) =>
+                      widget.controller.updateNote(note.copyWith(title: value)),
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    hintText: 'Title',
+                  ),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                if (note.type == NoteType.note)
+                  TextField(
+                    controller: _body,
+                    onChanged: (value) => widget.controller.updateNote(
+                      note.copyWith(body: value),
+                    ),
+                    minLines: 8,
+                    maxLines: null,
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      hintText: 'Write note',
+                    ),
+                  )
+                else ...[
+                  const SizedBox(height: 8),
+                  if (note.checklist.isEmpty)
+                    FilledButton.icon(
+                      onPressed: () => _addChecklistItem(),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add first task'),
+                    )
+                  else
+                    ...note.checklist.map(
+                      (item) => _ChecklistRow(
+                        key: ValueKey(item.id),
+                        item: item,
+                        focusNode: _focusNodeFor(item),
+                        onToggle: () => widget.controller.toggleChecklistItem(
+                          note,
+                          item,
+                        ),
+                        onText: (text) => widget.controller.updateChecklistItem(
+                          note,
+                          item,
+                          text,
+                        ),
+                        onEnter: () => _addChecklistItem(item),
+                        onRemove: () =>
+                            widget.controller.removeChecklistItem(note, item),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: () => _addChecklistItem(),
+                    icon: const Icon(Icons.add_task),
+                    label: const Text('Add task'),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                _ColorAndOpacity(
+                  note: note,
+                  onColor: (colorHex) => widget.controller.updateNote(
+                    note.copyWith(colorHex: colorHex),
+                  ),
+                  onOpacity: (opacity) => widget.controller.updateNote(
+                    note.copyWith(opacity: opacity),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    FilterChip(
+                      label: const Text('Desktop sticky'),
+                      avatar: const Icon(Icons.desktop_windows, size: 16),
+                      selected: note.popOnDesktop,
+                      onSelected: (value) => widget.controller.updateNote(
+                        note.copyWith(popOnDesktop: value),
+                      ),
+                    ),
+                    FilterChip(
+                      label: const Text('Mobile widget'),
+                      avatar: const Icon(Icons.phone_android, size: 16),
+                      selected: note.showOnMobileWidget,
+                      onSelected: (value) => widget.controller.updateNote(
+                        note.copyWith(showOnMobileWidget: value),
+                      ),
+                    ),
+                    FilterChip(
+                      label: const Text('Always on top'),
+                      avatar: const Icon(Icons.vertical_align_top, size: 16),
+                      selected: note.isAlwaysOnTop,
+                      onSelected: (value) => widget.controller.updateNote(
+                        note.copyWith(isAlwaysOnTop: value),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }
 }
 
-class _TodoRow extends StatefulWidget {
-  const _TodoRow({
+class _ChecklistRow extends StatefulWidget {
+  const _ChecklistRow({
+    super.key,
     required this.item,
     required this.focusNode,
     required this.onToggle,
@@ -403,10 +681,10 @@ class _TodoRow extends StatefulWidget {
   final VoidCallback onRemove;
 
   @override
-  State<_TodoRow> createState() => _TodoRowState();
+  State<_ChecklistRow> createState() => _ChecklistRowState();
 }
 
-class _TodoRowState extends State<_TodoRow> {
+class _ChecklistRowState extends State<_ChecklistRow> {
   late final TextEditingController _text;
 
   @override
@@ -416,13 +694,11 @@ class _TodoRowState extends State<_TodoRow> {
   }
 
   @override
-  void didUpdateWidget(covariant _TodoRow oldWidget) {
+  void didUpdateWidget(covariant _ChecklistRow oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.item.id != widget.item.id) {
       _text.text = widget.item.text;
-      return;
-    }
-    if (!widget.focusNode.hasFocus && _text.text != widget.item.text) {
+    } else if (!widget.focusNode.hasFocus && _text.text != widget.item.text) {
       _text.text = widget.item.text;
     }
   }
@@ -435,122 +711,38 @@ class _TodoRowState extends State<_TodoRow> {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: widget.item.done
-          ? Theme.of(context).colorScheme.surfaceContainerHighest
-          : Theme.of(context)
-              .colorScheme
-              .primaryContainer
-              .withValues(alpha: 0.32),
-      borderRadius: BorderRadius.circular(8),
-      child: Row(
-        children: [
-          Checkbox(
-              value: widget.item.done, onChanged: (_) => widget.onToggle()),
-          Expanded(
-            child: TextField(
-              controller: _text,
-              focusNode: widget.focusNode,
-              textInputAction: TextInputAction.next,
-              onSubmitted: (_) => widget.onEnter(),
-              onChanged: widget.onText,
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                hintText: 'Task',
-              ),
-              style: TextStyle(
-                decoration:
-                    widget.item.done ? TextDecoration.lineThrough : null,
-              ),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Delete task',
-            onPressed: widget.onRemove,
-            icon: const Icon(Icons.close),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StickyNotesPanel extends StatelessWidget {
-  const _StickyNotesPanel({
-    required this.notes,
-    required this.newSticky,
-    required this.onCreate,
-    required this.onUpdate,
-    required this.onFloat,
-    required this.onDelete,
-    required this.onColor,
-  });
-
-  final List<Note> notes;
-  final TextEditingController newSticky;
-  final Future<void> Function() onCreate;
-  final Future<void> Function(Note note, {String? title, String? body})
-      onUpdate;
-  final Future<void> Function(Note note) onFloat;
-  final Future<void> Function(Note note) onDelete;
-  final Future<void> Function(Note note, String colorHex) onColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.72),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
           children: [
-            Row(
-              children: [
-                const Icon(Icons.sticky_note_2_outlined, size: 28),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Sticky Notes',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
+            Checkbox(
+                value: widget.item.done, onChanged: (_) => widget.onToggle()),
+            Expanded(
+              child: TextField(
+                controller: _text,
+                focusNode: widget.focusNode,
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) => widget.onEnter(),
+                onChanged: widget.onText,
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  hintText: 'Task',
                 ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: newSticky,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => onCreate(),
-              decoration: InputDecoration(
-                hintText: 'Quick sticky note',
-                prefixIcon: const Icon(Icons.note_add_outlined),
-                suffixIcon: IconButton(
-                  tooltip: 'Create sticky',
-                  onPressed: onCreate,
-                  icon: const Icon(Icons.add),
+                style: TextStyle(
+                  decoration:
+                      widget.item.done ? TextDecoration.lineThrough : null,
                 ),
               ),
             ),
-            const SizedBox(height: 14),
-            Expanded(
-              child: notes.isEmpty
-                  ? const Center(child: Text('No sticky notes yet.'))
-                  : ListView.separated(
-                      itemCount: notes.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (context, index) {
-                        final note = notes[index];
-                        return _StickyCard(
-                          note: note,
-                          onUpdate: onUpdate,
-                          onFloat: () => onFloat(note),
-                          onDelete: () => onDelete(note),
-                          onColor: (color) => onColor(note, color),
-                        );
-                      },
-                    ),
+            IconButton(
+              tooltip: 'Delete task',
+              onPressed: widget.onRemove,
+              icon: const Icon(Icons.close),
             ),
           ],
         ),
@@ -559,126 +751,60 @@ class _StickyNotesPanel extends StatelessWidget {
   }
 }
 
-class _StickyCard extends StatefulWidget {
-  const _StickyCard({
+class _ColorAndOpacity extends StatelessWidget {
+  const _ColorAndOpacity({
     required this.note,
-    required this.onUpdate,
-    required this.onFloat,
-    required this.onDelete,
     required this.onColor,
+    required this.onOpacity,
   });
 
   final Note note;
-  final Future<void> Function(Note note, {String? title, String? body})
-      onUpdate;
-  final VoidCallback onFloat;
-  final VoidCallback onDelete;
   final ValueChanged<String> onColor;
-
-  @override
-  State<_StickyCard> createState() => _StickyCardState();
-}
-
-class _StickyCardState extends State<_StickyCard> {
-  late final TextEditingController _title;
-  late final TextEditingController _body;
-
-  @override
-  void initState() {
-    super.initState();
-    _title = TextEditingController(text: widget.note.title);
-    _body = TextEditingController(text: widget.note.body);
-  }
-
-  @override
-  void didUpdateWidget(covariant _StickyCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.note.id != widget.note.id) {
-      _title.text = widget.note.title;
-      _body.text = widget.note.body;
-    }
-  }
-
-  @override
-  void dispose() {
-    _title.dispose();
-    _body.dispose();
-    super.dispose();
-  }
+  final ValueChanged<double> onOpacity;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: noteColor(widget.note.colorHex),
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _title,
-                    onChanged: (value) =>
-                        widget.onUpdate(widget.note, title: value),
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      hintText: 'Title',
-                    ),
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          children: notePalette.take(8).map((hex) {
+            return InkWell(
+              borderRadius: BorderRadius.circular(99),
+              onTap: () => onColor(hex),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: noteColor(hex),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color:
+                        note.colorHex == hex ? Colors.black87 : Colors.black26,
+                    width: note.colorHex == hex ? 2 : 1,
                   ),
                 ),
-                IconButton(
-                  tooltip: 'Float on desktop',
-                  onPressed: widget.onFloat,
-                  icon: const Icon(Icons.open_in_new),
-                ),
-                IconButton(
-                  tooltip: 'Delete',
-                  onPressed: widget.onDelete,
-                  icon: const Icon(Icons.delete_outline),
-                ),
-              ],
-            ),
-            TextField(
-              controller: _body,
-              onChanged: (value) => widget.onUpdate(widget.note, body: value),
-              minLines: 2,
-              maxLines: 5,
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                hintText: 'Write sticky note',
+                child: const SizedBox.square(dimension: 24),
+              ),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            const Icon(Icons.opacity, size: 18),
+            Expanded(
+              child: Slider(
+                value: note.opacity.clamp(0.45, 1),
+                min: 0.45,
+                max: 1,
+                divisions: 11,
+                onChanged: onOpacity,
               ),
             ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Wrap(
-                spacing: 8,
-                children: notePalette.take(6).map((hex) {
-                  return InkWell(
-                    borderRadius: BorderRadius.circular(99),
-                    onTap: () => widget.onColor(hex),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: noteColor(hex),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: widget.note.colorHex == hex
-                              ? Colors.black87
-                              : Colors.black26,
-                          width: widget.note.colorHex == hex ? 2 : 1,
-                        ),
-                      ),
-                      child: const SizedBox.square(dimension: 20),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
+            Text('${(note.opacity * 100).round()}%'),
           ],
         ),
-      ),
+      ],
     );
   }
 }
@@ -695,13 +821,11 @@ class _HistoryScreen extends StatelessWidget {
       builder: (context, _) {
         final notes = controller.historyNotes;
         return Scaffold(
-          appBar: AppBar(
-            title: const Text('History'),
-          ),
+          appBar: AppBar(title: const Text('Last 7 Days')),
           body: notes.isEmpty
-              ? const Center(child: Text('Nothing saved yet.'))
+              ? const Center(child: Text('Nothing saved in the last 7 days.'))
               : ListView.separated(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(14),
                   itemCount: notes.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
                   itemBuilder: (context, index) {
@@ -710,9 +834,21 @@ class _HistoryScreen extends StatelessWidget {
                     return Material(
                       color: note.isDeleted
                           ? Theme.of(context).colorScheme.errorContainer
-                          : noteColor(note.colorHex),
+                          : noteColor(note.colorHex).withValues(
+                              alpha: note.opacity,
+                            ),
                       borderRadius: BorderRadius.circular(8),
                       child: ListTile(
+                        onTap: note.isDeleted
+                            ? null
+                            : () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => _ItemDetailScreen(
+                                      controller: controller,
+                                      noteId: note.id,
+                                    ),
+                                  ),
+                                ),
                         leading: Icon(
                           note.type == NoteType.checklist
                               ? Icons.checklist
@@ -727,19 +863,6 @@ class _HistoryScreen extends StatelessWidget {
                           '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}  ${note.preview}',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: Wrap(
-                          spacing: 4,
-                          children: [
-                            if (note.isDeleted)
-                              const Chip(label: Text('Deleted'))
-                            else if (note.isArchived)
-                              const Chip(label: Text('Archived')),
-                            if (note.type == NoteType.checklist)
-                              Chip(
-                                  label:
-                                      Text('${note.checklist.length} tasks')),
-                          ],
                         ),
                       ),
                     );
@@ -797,7 +920,7 @@ class _SyncChip extends StatelessWidget {
               'State: ${controller.syncState.name}',
               'Account: ${account == null ? 'not signed in' : _short(account)}',
               'Device: ${_short(controller.deviceId)}',
-              'Notes here: ${controller.notes.length}',
+              'Items here: ${controller.notes.length}',
               'Last pull count: ${controller.lastPulledCount}',
               'Last push count: ${controller.lastPushedCount}',
               'Last sync: ${_time(controller.lastSyncAt)}',
@@ -835,4 +958,14 @@ class _SyncChip extends StatelessWidget {
     final local = value.toLocal();
     return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}';
   }
+}
+
+String _shortTitle(String text, {required String fallback}) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) return fallback;
+  return trimmed.length > 36 ? '${trimmed.substring(0, 36)}...' : trimmed;
+}
+
+extension _FirstOrNull<T> on Iterable<T> {
+  T? get firstOrNull => isEmpty ? null : first;
 }
