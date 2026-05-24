@@ -1,9 +1,23 @@
 import 'package:flutter/services.dart';
 
+import '../app/app_config.dart';
 import '../models/note.dart';
 
 class WidgetPublisher {
   static const _channel = MethodChannel('noterr/widget');
+
+  Future<void> configureLiveWidgetSync(String passphrase) async {
+    if (!AppConfig.hasSupabase) return;
+    try {
+      await _channel.invokeMethod<void>('configureLiveWidgetSync', {
+        'supabaseUrl': AppConfig.supabaseUrl,
+        'supabaseAnonKey': AppConfig.supabaseAnonKey,
+        'passphrase': passphrase,
+      });
+    } catch (_) {
+      // Foreground widget sync is Android-only.
+    }
+  }
 
   Future<void> publish(List<Note> notes) async {
     final visible = notes
