@@ -29,6 +29,7 @@ class NoterrController extends ChangeNotifier {
   SecretKey? _key;
   StreamSubscription<RemoteNoteEnvelope>? _remoteSub;
   Timer? _syncTimer;
+  Timer? _dailyTimer;
   String _deviceId = '';
   DateTime? _lastPulledAt;
   DateTime? _lastSyncAt;
@@ -104,7 +105,7 @@ class NoterrController extends ChangeNotifier {
     return _notes.where((note) {
       return !note.isDeleted &&
           !note.isArchived &&
-          note.type == NoteType.checklist &&
+          note.supportsChecklist &&
           note.boardName == 'Today' &&
           _isSameLocalDay(note.createdAt.toLocal(), now);
     }).firstOrNull;
@@ -121,23 +122,28 @@ class NoterrController extends ChangeNotifier {
   }
 
   List<Note> get workspaceItems {
+    final daily = todayTodoNote;
+    return daily == null ? const [] : [daily];
+  }
+
+  List<Note> get historyNotes {
+    final oldest = DateTime.now().toUtc().subtract(const Duration(days: 30));
     return _notes.where((note) {
-      return !note.isDeleted && !note.isArchived;
+      return !note.isDeleted &&
+          note.isArchived &&
+          note.boardName == 'History' &&
+          note.createdAt.isAfter(oldest);
     }).toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   }
 
-  List<Note> get historyNotes {
-    final oldest = DateTime.now().toUtc().subtract(const Duration(days: 7));
-    return _notes.where((note) => note.updatedAt.isAfter(oldest)).toList()
-      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-  }
-
   Future<Note> ensureTodayTodoNote() async {
+    await _rollDailyBoardIfNeeded();
     final existing = todayTodoNote;
     if (existing != null) return existing;
-    final note = Note.blank(_deviceId, type: NoteType.checklist).copyWith(
-      title: 'Today',
+    final now = DateTime.now();
+    final note = Note.blank(_deviceId, type: NoteType.full).copyWith(
+      title: _dailyTitle(now),
       boardName: 'Today',
       isPinned: true,
       popOnDesktop: true,
@@ -147,6 +153,15 @@ class NoterrController extends ChangeNotifier {
     _notes.add(note);
     await _persistAndPush(note);
     return note;
+  }
+
+  Future<void> addTodayNote(String text) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+    final note = await ensureTodayTodoNote();
+    final body = note.body.trim();
+    final nextBody = body.isEmpty ? trimmed : '$body\n\n$trimmed';
+    await updateNote(note.copyWith(body: nextBody));
   }
 
   Future<void> addTodayTask(String text) async {
@@ -310,6 +325,7 @@ class NoterrController extends ChangeNotifier {
 
   Future<void> signOut() async {
     _syncTimer?.cancel();
+    _dailyTimer?.cancel();
     await _remoteSub?.cancel();
     await _remote.signOut();
     _key = null;
@@ -319,6 +335,7 @@ class NoterrController extends ChangeNotifier {
 
   Future<void> lock() async {
     _syncTimer?.cancel();
+    _dailyTimer?.cancel();
     await _remoteSub?.cancel();
     _key = null;
     _notes.clear();
@@ -353,8 +370,10 @@ class NoterrController extends ChangeNotifier {
     notifyListeners();
 
     await syncNow();
+    await ensureTodayTodoNote();
     _subscribeRemote();
     _startSyncTimer();
+    _startDailyTimer();
     await _publishWidget();
   }
 
@@ -364,6 +383,14 @@ class NoterrController extends ChangeNotifier {
     _syncTimer = Timer.periodic(const Duration(seconds: 8), (_) {
       if (_syncState == SyncState.syncing) return;
       unawaited(syncNow());
+    });
+  }
+
+  void _startDailyTimer() {
+    _dailyTimer?.cancel();
+    if (_key == null) return;
+    _dailyTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      unawaited(ensureTodayTodoNote());
     });
   }
 
@@ -464,6 +491,7 @@ class NoterrController extends ChangeNotifier {
       final remoteNotes = await _remote.pullNotes(key);
       _lastPulledCount = remoteNotes.length;
       _merge(remoteNotes);
+      await _rollDailyBoardIfNeeded();
       var pushed = 0;
       for (final note in _notes) {
         await _remote.pushNote(note, key, _deviceId);
@@ -507,6 +535,7 @@ class NoterrController extends ChangeNotifier {
   }
 
   Future<void> _persistAndPush(Note note) async {
+    _replace(note);
     await _saveLocal();
     await _publishWidget();
     notifyListeners();
@@ -546,6 +575,143 @@ class NoterrController extends ChangeNotifier {
     }
   }
 
+  Future<void> _rollDailyBoardIfNeeded() async {
+    final now = DateTime.now();
+    final staleBoards = _notes.where((note) {
+      return !note.isDeleted &&
+          !note.isArchived &&
+          note.boardName == 'Today' &&
+          !_isSameLocalDay(note.createdAt.toLocal(), now);
+    }).toList();
+
+    final carryTasks = <ChecklistItem>[];
+    for (final board in staleBoards) {
+      carryTasks.addAll(
+        board.checklist.where(
+          (item) => !item.done && item.text.trim().isNotEmpty,
+        ),
+      );
+      await _persistAndPush(
+        _touch(
+          board.copyWith(
+            title: _historyTitle(board.createdAt.toLocal()),
+            boardName: 'History',
+            isArchived: true,
+            isPinned: false,
+            popOnDesktop: false,
+            showOnMobileWidget: false,
+          ),
+        ),
+      );
+    }
+
+    if (carryTasks.isNotEmpty) {
+      final today = todayTodoNote ??
+          Note.blank(_deviceId, type: NoteType.full).copyWith(
+            title: _dailyTitle(now),
+            boardName: 'Today',
+            isPinned: true,
+            popOnDesktop: true,
+            showOnMobileWidget: true,
+            colorHex: 'FFF4B8',
+          );
+      final existingTexts =
+          today.checklist.map((item) => item.text.trim()).toSet();
+      final mergedTasks = [
+        ...today.checklist,
+        ...carryTasks
+            .where((item) => !existingTexts.contains(item.text.trim()))
+            .map((item) => ChecklistItem(text: item.text)),
+      ];
+      await _persistAndPush(_touch(today.copyWith(checklist: mergedTasks)));
+    }
+
+    await _mergeDuplicateTodayBoards(now);
+    await _deleteHistoryOlderThan30Days();
+  }
+
+  Future<void> _mergeDuplicateTodayBoards(DateTime now) async {
+    final boards = _notes.where((note) {
+      return !note.isDeleted &&
+          !note.isArchived &&
+          note.boardName == 'Today' &&
+          _isSameLocalDay(note.createdAt.toLocal(), now);
+    }).toList();
+    if (boards.length < 2) return;
+
+    boards.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    final keeper = boards.first;
+    final duplicateBoards = boards.skip(1).toList();
+    final bodyParts = <String>[
+      keeper.body.trim(),
+      ...duplicateBoards.map((note) => note.body.trim()),
+    ].where((part) => part.isNotEmpty).toSet().toList();
+    final checklistByKey = <String, ChecklistItem>{};
+    for (final board in boards) {
+      for (final item in board.checklist) {
+        final key = item.text.trim().isEmpty ? item.id : item.text.trim();
+        checklistByKey.putIfAbsent(key, () => item);
+      }
+    }
+
+    await _persistAndPush(
+      _touch(
+        keeper.copyWith(
+          title: _dailyTitle(now),
+          type: NoteType.full,
+          body: bodyParts.join('\n\n'),
+          checklist: checklistByKey.values.toList(),
+          isPinned: true,
+          popOnDesktop: true,
+          showOnMobileWidget: true,
+        ),
+      ),
+    );
+
+    for (final duplicate in duplicateBoards) {
+      await _persistAndPush(
+        _touch(
+          duplicate.copyWith(
+            isDeleted: true,
+            deletedAt: DateTime.now().toUtc(),
+            popOnDesktop: false,
+            showOnMobileWidget: false,
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _deleteHistoryOlderThan30Days() async {
+    final oldest = DateTime.now().toUtc().subtract(const Duration(days: 30));
+    final oldHistory = _notes.where((note) {
+      return !note.isDeleted &&
+          note.isArchived &&
+          note.boardName == 'History' &&
+          note.createdAt.isBefore(oldest);
+    }).toList();
+    for (final note in oldHistory) {
+      await _persistAndPush(
+        _touch(
+          note.copyWith(
+            isDeleted: true,
+            deletedAt: DateTime.now().toUtc(),
+            popOnDesktop: false,
+            showOnMobileWidget: false,
+          ),
+        ),
+      );
+    }
+  }
+
+  Note _touch(Note note) {
+    return note.copyWith(
+      updatedAt: DateTime.now().toUtc(),
+      revision: note.revision + 1,
+      deviceId: _deviceId,
+    );
+  }
+
   Future<void> _saveLocal() async {
     final key = _key;
     if (key == null) return;
@@ -570,9 +736,22 @@ class NoterrController extends ChangeNotifier {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
+  String _dailyTitle(DateTime date) {
+    return 'Today - ${_dateLabel(date)}';
+  }
+
+  String _historyTitle(DateTime date) {
+    return _dateLabel(date);
+  }
+
+  String _dateLabel(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
   @override
   void dispose() {
     _syncTimer?.cancel();
+    _dailyTimer?.cancel();
     _remoteSub?.cancel();
     super.dispose();
   }

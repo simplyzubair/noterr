@@ -130,21 +130,16 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     _quickText.clear();
 
     if (_quickType == NoteType.checklist) {
-      final note = await widget.controller.createNote(
-        type: NoteType.checklist,
-        boardName: 'Lists',
-        title: text.isEmpty ? 'Checklist' : text,
-      );
-      await widget.controller.addChecklistItem(note);
+      if (text.isEmpty) {
+        final note = await widget.controller.ensureTodayTodoNote();
+        _openItem(note);
+        return;
+      }
+      await widget.controller.addTodayTask(text);
       return;
     }
 
-    final note = await widget.controller.createNote(
-      type: NoteType.note,
-      title: _shortTitle(text, fallback: 'Sticky note'),
-      body: text,
-    );
-    await StickyWindowService.instance.show(note);
+    await widget.controller.addTodayNote(text);
   }
 
   void _openHistory() {
@@ -266,7 +261,7 @@ class _QuickCreateBar extends StatelessWidget {
                       ButtonSegment(
                         value: NoteType.checklist,
                         icon: Icon(Icons.checklist),
-                        label: Text('Checklist'),
+                        label: Text('Task'),
                       ),
                       ButtonSegment(
                         value: NoteType.note,
@@ -288,8 +283,8 @@ class _QuickCreateBar extends StatelessWidget {
               onSubmitted: (_) => onCreate(),
               decoration: InputDecoration(
                 hintText: type == NoteType.checklist
-                    ? 'Name a checklist and press Enter'
-                    : 'Write a sticky note and press Enter',
+                    ? 'Add a task and press Enter'
+                    : 'Add a note to today and press Enter',
                 prefixIcon: Icon(
                   type == NoteType.checklist
                       ? Icons.add_task
@@ -339,9 +334,11 @@ class _ItemCard extends StatelessWidget {
               Row(
                 children: [
                   Icon(
-                    note.type == NoteType.checklist
-                        ? Icons.checklist
-                        : Icons.sticky_note_2_outlined,
+                    note.type == NoteType.full
+                        ? Icons.today_outlined
+                        : note.type == NoteType.checklist
+                            ? Icons.checklist
+                            : Icons.sticky_note_2_outlined,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -391,14 +388,15 @@ class _ItemCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 6),
-              if (note.type == NoteType.checklist)
-                Text('$activeCount left, $doneCount done')
-              else
+              Text('$activeCount left, $doneCount done'),
+              if (note.preview.isNotEmpty) ...[
+                const SizedBox(height: 6),
                 Text(
-                  note.preview.isEmpty ? 'No text yet' : note.preview,
+                  note.preview,
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                 ),
+              ],
               const SizedBox(height: 10),
               Wrap(
                 spacing: 6,
@@ -450,7 +448,7 @@ class _ItemDetailScreen extends StatelessWidget {
         }
         return Scaffold(
           appBar: AppBar(
-            title: Text(note.type == NoteType.checklist ? 'Checklist' : 'Note'),
+            title: Text(note.isArchived ? note.title : 'Today'),
             actions: [
               IconButton(
                 tooltip: 'Show as desktop sticky',
@@ -565,20 +563,20 @@ class _ItemEditorState extends State<_ItemEditor> {
                         fontWeight: FontWeight.w800,
                       ),
                 ),
-                if (note.type == NoteType.note)
+                if (note.supportsBody)
                   TextField(
                     controller: _body,
                     onChanged: (value) => widget.controller.updateNote(
                       note.copyWith(body: value),
                     ),
-                    minLines: 8,
+                    minLines: note.supportsChecklist ? 4 : 8,
                     maxLines: null,
                     decoration: const InputDecoration(
                       border: InputBorder.none,
-                      hintText: 'Write note',
+                      hintText: 'Today notes',
                     ),
-                  )
-                else ...[
+                  ),
+                if (note.supportsChecklist) ...[
                   const SizedBox(height: 8),
                   if (note.checklist.isEmpty)
                     FilledButton.icon(
@@ -821,9 +819,9 @@ class _HistoryScreen extends StatelessWidget {
       builder: (context, _) {
         final notes = controller.historyNotes;
         return Scaffold(
-          appBar: AppBar(title: const Text('Last 7 Days')),
+          appBar: AppBar(title: const Text('Last 30 Days')),
           body: notes.isEmpty
-              ? const Center(child: Text('Nothing saved in the last 7 days.'))
+              ? const Center(child: Text('Nothing saved in the last 30 days.'))
               : ListView.separated(
                   padding: const EdgeInsets.all(14),
                   itemCount: notes.length,
@@ -850,9 +848,11 @@ class _HistoryScreen extends StatelessWidget {
                                   ),
                                 ),
                         leading: Icon(
-                          note.type == NoteType.checklist
-                              ? Icons.checklist
-                              : Icons.sticky_note_2_outlined,
+                          note.type == NoteType.full
+                              ? Icons.today_outlined
+                              : note.type == NoteType.checklist
+                                  ? Icons.checklist
+                                  : Icons.sticky_note_2_outlined,
                         ),
                         title: Text(
                           note.title.isEmpty ? 'Untitled' : note.title,
@@ -958,12 +958,6 @@ class _SyncChip extends StatelessWidget {
     final local = value.toLocal();
     return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}';
   }
-}
-
-String _shortTitle(String text, {required String fallback}) {
-  final trimmed = text.trim();
-  if (trimmed.isEmpty) return fallback;
-  return trimmed.length > 36 ? '${trimmed.substring(0, 36)}...' : trimmed;
 }
 
 extension _FirstOrNull<T> on Iterable<T> {

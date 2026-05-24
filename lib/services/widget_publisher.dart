@@ -11,24 +11,29 @@ class WidgetPublisher {
         .toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
+    final dailyBoards =
+        visible.where((note) => note.boardName == 'Today').toList();
+    final dailyBoard = dailyBoards.isEmpty ? null : dailyBoards.first;
+
     final widgetNotes = visible
         .where((note) => note.showOnMobileWidget || note.popOnDesktop)
         .toList();
     final todoNotes =
-        widgetNotes.where((note) => note.type == NoteType.checklist).toList();
-    final stickyNotes =
-        widgetNotes.where((note) => note.type != NoteType.checklist).toList();
+        widgetNotes.where((note) => note.supportsChecklist).toList();
+    final stickyNotes = widgetNotes.where((note) => note.supportsBody).toList();
     final todayTodos =
         todoNotes.where((note) => note.boardName == 'Today').toList();
     final todayTodo = todayTodos.isEmpty ? null : todayTodos.first;
     final primaryTodo =
-        todayTodo ?? (todoNotes.isEmpty ? null : todoNotes.first);
-    final primarySticky = stickyNotes.isEmpty ? null : stickyNotes.first;
-    final primary = widgetNotes.isNotEmpty
-        ? widgetNotes.first
-        : visible.isEmpty
-            ? null
-            : visible.first;
+        dailyBoard ?? todayTodo ?? (todoNotes.isEmpty ? null : todoNotes.first);
+    final primarySticky =
+        dailyBoard ?? (stickyNotes.isEmpty ? null : stickyNotes.first);
+    final primary = dailyBoard ??
+        (widgetNotes.isNotEmpty
+            ? widgetNotes.first
+            : visible.isEmpty
+                ? null
+                : visible.first);
 
     try {
       await _channel.invokeMethod<void>('publish', {

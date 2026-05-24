@@ -42,13 +42,15 @@ class StickyWindowService {
           return true;
         case 'sticky-note-closed':
           final noteId = call.arguments as String;
-          final note = _controller?.notes.where((item) => item.id == noteId).firstOrNull;
+          final note =
+              _controller?.notes.where((item) => item.id == noteId).firstOrNull;
           if (note != null) _dismissedRemoteRevision[note.id] = note.revision;
           _noteWindows.remove(noteId);
           return true;
         case 'sticky-note-delete':
           final noteId = call.arguments as String;
-          final note = _controller?.notes.where((item) => item.id == noteId).firstOrNull;
+          final note =
+              _controller?.notes.where((item) => item.id == noteId).firstOrNull;
           if (note != null) await _controller?.softDeleteNote(note);
           return true;
       }
@@ -95,18 +97,23 @@ class StickyWindowService {
     }
 
     for (final entry in _noteWindows.entries.toList()) {
-      final note = controller.notes.where((item) => item.id == entry.key).firstOrNull;
-      if (note == null || note.isDeleted) {
+      final note =
+          controller.notes.where((item) => item.id == entry.key).firstOrNull;
+      if (note == null ||
+          note.isDeleted ||
+          note.isArchived ||
+          !note.popOnDesktop) {
         _noteWindows.remove(entry.key);
         unawaited(_invokeSafely(entry.value, 'sticky-note-lock'));
         continue;
       }
-      unawaited(_invokeSafely(entry.value, 'sticky-note-replaced', note.toJson()));
+      unawaited(
+          _invokeSafely(entry.value, 'sticky-note-replaced', note.toJson()));
     }
 
     for (final note in controller.notes) {
       if (!note.popOnDesktop ||
-          note.deviceId == controller.deviceId ||
+          (note.deviceId == controller.deviceId && note.boardName != 'Today') ||
           note.isArchived ||
           note.isDeleted ||
           _noteWindows.containsKey(note.id)) {
