@@ -7,6 +7,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../controllers/noterr_controller.dart';
 import '../models/note.dart';
+import '../services/startup_service.dart';
 import '../services/sticky_window_service.dart';
 import 'note_colors.dart';
 
@@ -21,7 +22,9 @@ class WorkspaceScreen extends StatefulWidget {
 
 class _WorkspaceScreenState extends State<WorkspaceScreen>
     with WindowListener, TrayListener {
+  final _startupService = const StartupService();
   bool _allowClose = false;
+  bool _startOnLogin = true;
 
   @override
   void initState() {
@@ -51,6 +54,8 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   Future<void> _initDesktopShell() async {
     try {
       await windowManager.setPreventClose(true);
+      final startOnLogin = await _startupService.ensureDefaultEnabled();
+      if (mounted) setState(() => _startOnLogin = startOnLogin);
       await trayManager.setIcon('windows/runner/resources/app_icon.ico');
       await trayManager.setToolTip('Noterr');
       await trayManager.setContextMenu(
@@ -121,6 +126,50 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     } catch (_) {}
   }
 
+  Future<void> _setStartOnLogin(bool value) async {
+    setState(() => _startOnLogin = value);
+    await _startupService.setEnabled(value);
+  }
+
+  void _openSettings() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                children: [
+                  Text(
+                    'Settings',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    secondary: const Icon(Icons.power_settings_new),
+                    title: const Text('Start Noterr with Windows'),
+                    subtitle: const Text('Show the daily sticky after sign in.'),
+                    value: _startOnLogin,
+                    onChanged: (value) {
+                      setSheetState(() => _startOnLogin = value);
+                      unawaited(_setStartOnLogin(value));
+                    },
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _openHistory() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -150,6 +199,12 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                 onPressed: _openHistory,
                 icon: const Icon(Icons.history),
               ),
+              if (_isDesktop)
+                IconButton(
+                  tooltip: 'Settings',
+                  onPressed: _openSettings,
+                  icon: const Icon(Icons.settings_outlined),
+                ),
               IconButton(
                 tooltip: 'Lock notes',
                 onPressed: widget.controller.lock,
@@ -245,6 +300,7 @@ class _ItemEditorState extends State<_ItemEditor> {
   late final TextEditingController _body;
   final Map<String, FocusNode> _focusNodes = {};
   String? _pendingFocusId;
+  bool _showStyleControls = false;
 
   @override
   void initState() {
@@ -393,45 +449,43 @@ class _ItemEditorState extends State<_ItemEditor> {
                     label: const Text('Add task'),
                   ),
                 ],
-                const SizedBox(height: 14),
-                _ColorAndOpacity(
-                  note: note,
-                  onColor: (colorHex) => widget.controller.updateNote(
-                    note.copyWith(colorHex: colorHex),
-                  ),
-                  onOpacity: (opacity) => widget.controller.updateNote(
-                    note.copyWith(opacity: opacity),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: IconButton.filledTonal(
+                    tooltip: 'Style and display',
+                    onPressed: () => setState(
+                      () => _showStyleControls = !_showStyleControls,
+                    ),
+                    icon: const Icon(Icons.tune),
                   ),
                 ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    FilterChip(
-                      label: const Text('Desktop sticky'),
-                      avatar: const Icon(Icons.desktop_windows, size: 16),
-                      selected: note.popOnDesktop,
-                      onSelected: (value) => widget.controller.updateNote(
-                        note.copyWith(popOnDesktop: value),
-                      ),
-                    ),
-                    FilterChip(
-                      label: const Text('Mobile widget'),
-                      avatar: const Icon(Icons.phone_android, size: 16),
-                      selected: note.showOnMobileWidget,
-                      onSelected: (value) => widget.controller.updateNote(
-                        note.copyWith(showOnMobileWidget: value),
-                      ),
-                    ),
-                    FilterChip(
-                      label: const Text('Always on top'),
-                      avatar: const Icon(Icons.vertical_align_top, size: 16),
-                      selected: note.isAlwaysOnTop,
-                      onSelected: (value) => widget.controller.updateNote(
-                        note.copyWith(isAlwaysOnTop: value),
-                      ),
-                    ),
-                  ],
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 160),
+                  child: !_showStyleControls
+                      ? const SizedBox.shrink()
+                      : _StyleAndDisplayControls(
+                          key: const ValueKey('style-controls'),
+                          note: note,
+                          onColor: (colorHex) => widget.controller.updateNote(
+                            note.copyWith(colorHex: colorHex),
+                          ),
+                          onOpacity: (opacity) => widget.controller.updateNote(
+                            note.copyWith(opacity: opacity),
+                          ),
+                          onPopOnDesktop: (value) =>
+                              widget.controller.updateNote(
+                            note.copyWith(popOnDesktop: value),
+                          ),
+                          onMobileWidget: (value) =>
+                              widget.controller.updateNote(
+                            note.copyWith(showOnMobileWidget: value),
+                          ),
+                          onAlwaysOnTop: (value) =>
+                              widget.controller.updateNote(
+                            note.copyWith(isAlwaysOnTop: value),
+                          ),
+                        ),
                 ),
               ],
             ),
@@ -531,16 +585,23 @@ class _ChecklistRowState extends State<_ChecklistRow> {
   }
 }
 
-class _ColorAndOpacity extends StatelessWidget {
-  const _ColorAndOpacity({
+class _StyleAndDisplayControls extends StatelessWidget {
+  const _StyleAndDisplayControls({
+    super.key,
     required this.note,
     required this.onColor,
     required this.onOpacity,
+    required this.onPopOnDesktop,
+    required this.onMobileWidget,
+    required this.onAlwaysOnTop,
   });
 
   final Note note;
   final ValueChanged<String> onColor;
   final ValueChanged<double> onOpacity;
+  final ValueChanged<bool> onPopOnDesktop;
+  final ValueChanged<bool> onMobileWidget;
+  final ValueChanged<bool> onAlwaysOnTop;
 
   @override
   Widget build(BuildContext context) {
@@ -582,6 +643,30 @@ class _ColorAndOpacity extends StatelessWidget {
               ),
             ),
             Text('${(note.opacity * 100).round()}%'),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            FilterChip(
+              label: const Text('Desktop sticky'),
+              avatar: const Icon(Icons.desktop_windows, size: 16),
+              selected: note.popOnDesktop,
+              onSelected: onPopOnDesktop,
+            ),
+            FilterChip(
+              label: const Text('Mobile widget'),
+              avatar: const Icon(Icons.phone_android, size: 16),
+              selected: note.showOnMobileWidget,
+              onSelected: onMobileWidget,
+            ),
+            FilterChip(
+              label: const Text('Always on top'),
+              avatar: const Icon(Icons.vertical_align_top, size: 16),
+              selected: note.isAlwaysOnTop,
+              onSelected: onAlwaysOnTop,
+            ),
           ],
         ),
       ],

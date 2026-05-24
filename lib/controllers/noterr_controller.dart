@@ -357,12 +357,19 @@ class NoterrController extends ChangeNotifier {
     if (passphrase.trim().isEmpty) {
       throw ArgumentError('Enter a sync passkey.');
     }
+    final cleanPassphrase = passphrase.trim();
     _deviceId = await _localVault.getOrCreateDeviceId();
-    await _ensurePasskeySession(passphrase);
-    final salt = hasCloud
-        ? await _remote.getOrCreateVaultSalt()
-        : await _localVault.getOrCreateLocalSalt();
-    _key = await VaultCrypto.deriveKey(passphrase: passphrase, salt: salt);
+    final cachedSalt =
+        hasCloud ? await _localVault.readCachedVaultSalt() : null;
+    if (cachedSalt == null) {
+      await _ensurePasskeySession(cleanPassphrase);
+    }
+    final salt = cachedSalt ??
+        (hasCloud
+            ? await _remote.getOrCreateVaultSalt()
+            : await _localVault.getOrCreateLocalSalt());
+    if (hasCloud) await _localVault.saveCachedVaultSalt(salt);
+    _key = await VaultCrypto.deriveKey(passphrase: cleanPassphrase, salt: salt);
 
     LocalVaultSnapshot snapshot;
     try {
@@ -379,14 +386,30 @@ class NoterrController extends ChangeNotifier {
     _syncState = hasCloud ? SyncState.idle : SyncState.offline;
     notifyListeners();
 
-    await syncNow();
     await ensureTodayTodoNote();
-    _subscribeRemote();
-    _startSyncTimer();
+    if (!hasCloud || _remote.currentUserId != null) {
+      _subscribeRemote();
+    }
     _startDailyTimer();
-    await _localVault.savePassphrase(passphrase.trim());
-    await _widgetPublisher.configureLiveWidgetSync(passphrase.trim());
+    await _localVault.savePassphrase(cleanPassphrase);
+    await _widgetPublisher.configureLiveWidgetSync(cleanPassphrase);
     await _publishWidget();
+    if (hasCloud) {
+      unawaited(_finishCloudUnlock(cleanPassphrase));
+    }
+  }
+
+  Future<void> _finishCloudUnlock(String passphrase) async {
+    try {
+      await _ensurePasskeySession(passphrase);
+      final salt = await _remote.getOrCreateVaultSalt();
+      await _localVault.saveCachedVaultSalt(salt);
+      await syncNow();
+      _subscribeRemote();
+      _startSyncTimer();
+    } catch (error) {
+      _setError(error.toString());
+    }
   }
 
   Future<bool> unlockSavedDevice() async {

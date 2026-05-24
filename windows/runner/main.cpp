@@ -21,6 +21,19 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
+  bool is_multi_window =
+      !command_line_arguments.empty() && command_line_arguments[0] == "multi_window";
+  HANDLE single_instance_mutex = nullptr;
+  if (!is_multi_window) {
+    single_instance_mutex =
+        ::CreateMutexW(nullptr, TRUE, L"NoterrSingleInstanceMutex");
+    if (single_instance_mutex != nullptr &&
+        ::GetLastError() == ERROR_ALREADY_EXISTS) {
+      ::CloseHandle(single_instance_mutex);
+      ::CoUninitialize();
+      return EXIT_SUCCESS;
+    }
+  }
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
@@ -39,5 +52,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
 
   ::CoUninitialize();
+  if (single_instance_mutex != nullptr) {
+    ::CloseHandle(single_instance_mutex);
+  }
   return EXIT_SUCCESS;
 }

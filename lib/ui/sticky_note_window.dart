@@ -54,6 +54,7 @@ class _StickyNoteWindowState extends State<StickyNoteWindow>
   final Map<String, FocusNode> _checklistFocusNodes = {};
   WindowController? _windowController;
   bool _rolledUp = false;
+  bool _showStyleControls = false;
   String? _pendingChecklistFocusId;
 
   @override
@@ -251,11 +252,16 @@ class _StickyNoteWindowState extends State<StickyNoteWindow>
       _StickyAction.pinOnTop => _toggleAlwaysOnTop(),
       _StickyAction.phoneWidget => _toggleMobileWidget(),
       _StickyAction.desktopPopup => _togglePopOnDesktop(),
+      _StickyAction.style => _toggleStyleControls(),
       _StickyAction.rollUp => _toggleRolledUp(),
       _StickyAction.makeWide => _makeWide(),
       _StickyAction.delete => _delete(),
       _StickyAction.close => _close(),
     };
+  }
+
+  Future<void> _toggleStyleControls() async {
+    setState(() => _showStyleControls = !_showStyleControls);
   }
 
   Future<void> _showQuickMenu(Offset position) async {
@@ -402,49 +408,24 @@ class _StickyNoteWindowState extends State<StickyNoteWindow>
                               onPressed: _addChecklistItem,
                               icon: const Icon(Icons.add_task, size: 18),
                             ),
-                          ...notePalette.take(6).map(
-                                (hex) => Padding(
-                                  padding: const EdgeInsets.only(right: 6),
-                                  child: InkWell(
-                                    borderRadius: BorderRadius.circular(99),
-                                    onTap: () => _save(colorHex: hex),
-                                    child: DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        color: noteColor(hex),
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: _note.colorHex == hex
-                                              ? Colors.black87
-                                              : Colors.black26,
-                                          width: _note.colorHex == hex ? 2 : 1,
-                                        ),
-                                      ),
-                                      child:
-                                          const SizedBox.square(dimension: 18),
-                                    ),
-                                  ),
-                                ),
-                              ),
+                          const Spacer(),
+                          IconButton(
+                            tooltip: 'Style and transparency',
+                            onPressed: _toggleStyleControls,
+                            icon: const Icon(Icons.tune, size: 18),
+                          ),
                         ],
                       ),
-                      Row(
-                        children: [
-                          const Icon(Icons.opacity,
-                              size: 18, color: Colors.black87),
-                          Expanded(
-                            child: Slider(
-                              value: _note.opacity.clamp(0.45, 1),
-                              min: 0.45,
-                              max: 1,
-                              divisions: 11,
-                              onChanged: _setOpacity,
-                            ),
-                          ),
-                          Text(
-                            '${(_note.opacity * 100).round()}%',
-                            style: const TextStyle(color: Colors.black87),
-                          ),
-                        ],
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 140),
+                        child: !_showStyleControls
+                            ? const SizedBox.shrink()
+                            : _StickyStyleControls(
+                                key: const ValueKey('sticky-style'),
+                                note: _note,
+                                onColor: (hex) => _save(colorHex: hex),
+                                onOpacity: _setOpacity,
+                              ),
                       ),
                     ],
                   ),
@@ -462,6 +443,7 @@ enum _StickyAction {
   pinOnTop,
   phoneWidget,
   desktopPopup,
+  style,
   rollUp,
   makeWide,
   delete,
@@ -533,6 +515,71 @@ class _StickyChecklistFieldState extends State<_StickyChecklistField> {
   }
 }
 
+class _StickyStyleControls extends StatelessWidget {
+  const _StickyStyleControls({
+    super.key,
+    required this.note,
+    required this.onColor,
+    required this.onOpacity,
+  });
+
+  final Note note;
+  final ValueChanged<String> onColor;
+  final ValueChanged<double> onOpacity;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            ...notePalette.take(6).map(
+                  (hex) => Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(99),
+                      onTap: () => onColor(hex),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: noteColor(hex),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: note.colorHex == hex
+                                ? Colors.black87
+                                : Colors.black26,
+                            width: note.colorHex == hex ? 2 : 1,
+                          ),
+                        ),
+                        child: const SizedBox.square(dimension: 18),
+                      ),
+                    ),
+                  ),
+                ),
+          ],
+        ),
+        Row(
+          children: [
+            const Icon(Icons.opacity, size: 18, color: Colors.black87),
+            Expanded(
+              child: Slider(
+                value: note.opacity.clamp(0.45, 1),
+                min: 0.45,
+                max: 1,
+                divisions: 11,
+                onChanged: onOpacity,
+              ),
+            ),
+            Text(
+              '${(note.opacity * 100).round()}%',
+              style: const TextStyle(color: Colors.black87),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 List<PopupMenuEntry<_StickyAction>> _quickMenuItems(Note note) {
   return [
     if (note.supportsChecklist)
@@ -581,6 +628,14 @@ List<PopupMenuEntry<_StickyAction>> _quickMenuItems(Note note) {
         title: Text(
           note.popOnDesktop ? 'Stop desktop popups' : 'Pop up on desktop',
         ),
+        contentPadding: EdgeInsets.zero,
+      ),
+    ),
+    const PopupMenuItem(
+      value: _StickyAction.style,
+      child: ListTile(
+        leading: Icon(Icons.tune),
+        title: Text('Style and transparency'),
         contentPadding: EdgeInsets.zero,
       ),
     ),
