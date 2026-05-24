@@ -32,6 +32,7 @@ class NoterrController extends ChangeNotifier {
   Timer? _syncTimer;
   Timer? _dailyTimer;
   String _deviceId = '';
+  String? _activeVaultSalt;
   DateTime? _lastPulledAt;
   DateTime? _lastSyncAt;
   DateTime? _lastPushAt;
@@ -359,23 +360,52 @@ class NoterrController extends ChangeNotifier {
     }
     final cleanPassphrase = passphrase.trim();
     _deviceId = await _localVault.getOrCreateDeviceId();
-    final cachedSalt =
-        hasCloud ? await _localVault.readCachedVaultSalt() : null;
-    if (cachedSalt == null) {
+    if (hasCloud) {
+      final cachedSalt = await _localVault.readCachedVaultSalt();
+      if (cachedSalt != null) {
+        try {
+          await _openLocalVault(cleanPassphrase, cachedSalt);
+          await _finishUnlock(cleanPassphrase);
+          return;
+        } catch (_) {
+          // Older builds may have cached the wrong salt. Retry online below.
+        }
+      }
+
       await _ensurePasskeySession(cleanPassphrase);
+      final cloudSalt = await _remote.getOrCreateVaultSalt();
+      await _localVault.saveCachedVaultSalt(cloudSalt);
+      await _openLocalVault(
+        cleanPassphrase,
+        cloudSalt,
+        allowEmptyCloudRecovery: true,
+      );
+      await _finishUnlock(cleanPassphrase);
+      return;
     }
-    final salt = cachedSalt ??
-        (hasCloud
-            ? await _remote.getOrCreateVaultSalt()
-            : await _localVault.getOrCreateLocalSalt());
-    if (hasCloud) await _localVault.saveCachedVaultSalt(salt);
-    _key = await VaultCrypto.deriveKey(passphrase: cleanPassphrase, salt: salt);
+
+    final salt = await _localVault.getOrCreateLocalSalt();
+    await _openLocalVault(cleanPassphrase, salt);
+    await _finishUnlock(cleanPassphrase);
+  }
+
+  Future<void> _openLocalVault(
+    String passphrase,
+    String salt, {
+    bool allowEmptyCloudRecovery = false,
+  }) async {
+    _key = await VaultCrypto.deriveKey(passphrase: passphrase, salt: salt);
+    _activeVaultSalt = salt;
 
     LocalVaultSnapshot snapshot;
     try {
       snapshot = await _localVault.load(_key!);
     } catch (_) {
-      if (!hasCloud) rethrow;
+      if (!allowEmptyCloudRecovery) {
+        _key = null;
+        _activeVaultSalt = null;
+        rethrow;
+      }
       await _localVault.backUpVault(suffix: 'local-only-backup');
       snapshot = const LocalVaultSnapshot(notes: [], lastPulledAt: null);
     }
@@ -385,17 +415,19 @@ class NoterrController extends ChangeNotifier {
     _lastPulledAt = snapshot.lastPulledAt;
     _syncState = hasCloud ? SyncState.idle : SyncState.offline;
     notifyListeners();
+  }
 
+  Future<void> _finishUnlock(String passphrase) async {
     await ensureTodayTodoNote();
     if (!hasCloud || _remote.currentUserId != null) {
       _subscribeRemote();
     }
     _startDailyTimer();
-    await _localVault.savePassphrase(cleanPassphrase);
-    await _widgetPublisher.configureLiveWidgetSync(cleanPassphrase);
+    await _localVault.savePassphrase(passphrase);
+    await _widgetPublisher.configureLiveWidgetSync(passphrase);
     await _publishWidget();
     if (hasCloud) {
-      unawaited(_finishCloudUnlock(cleanPassphrase));
+      unawaited(_finishCloudUnlock(passphrase));
     }
   }
 
@@ -404,6 +436,13 @@ class NoterrController extends ChangeNotifier {
       await _ensurePasskeySession(passphrase);
       final salt = await _remote.getOrCreateVaultSalt();
       await _localVault.saveCachedVaultSalt(salt);
+      if (_activeVaultSalt != salt) {
+        await _openLocalVault(
+          passphrase,
+          salt,
+          allowEmptyCloudRecovery: true,
+        );
+      }
       await syncNow();
       _subscribeRemote();
       _startSyncTimer();
@@ -419,7 +458,6 @@ class NoterrController extends ChangeNotifier {
       await unlock(passphrase);
       return true;
     } catch (_) {
-      await _localVault.clearSavedPassphrase();
       rethrow;
     }
   }
