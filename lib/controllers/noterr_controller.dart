@@ -751,7 +751,7 @@ class NoterrController extends ChangeNotifier {
   }
 
   String _dailyTitle(DateTime date) {
-    return 'Today - ${_dateLabel(date)}';
+    return _dateLabel(date);
   }
 
   String _historyTitle(DateTime date) {
