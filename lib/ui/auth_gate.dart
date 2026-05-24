@@ -25,9 +25,10 @@ class AuthGate extends StatefulWidget {
   State<AuthGate> createState() => _AuthGateState();
 }
 
-class _AuthGateState extends State<AuthGate> {
+class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   late final NoterrController _controller;
   var _autoUnlockTried = false;
+  var _autoUnlocking = false;
 
   @override
   void initState() {
@@ -40,8 +41,12 @@ class _AuthGateState extends State<AuthGate> {
       remote: remote,
       widgetPublisher: WidgetPublisher(),
     );
+    WidgetsBinding.instance.addObserver(this);
     StickyWindowService.instance.bindController(_controller);
-    unawaited(_tryAutoUnlock());
+    if (widget.hasCloud) {
+      _autoUnlocking = true;
+      unawaited(_tryAutoUnlock());
+    }
   }
 
   Future<void> _tryAutoUnlock() async {
@@ -51,13 +56,23 @@ class _AuthGateState extends State<AuthGate> {
       await _controller.unlockSavedDevice();
     } catch (_) {
       // If the stored device key is invalid, the normal unlock screen appears.
+    } finally {
+      if (mounted) setState(() => _autoUnlocking = false);
     }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _controller.isUnlocked) {
+      unawaited(_controller.syncNow());
+    }
   }
 
   @override
@@ -65,11 +80,34 @@ class _AuthGateState extends State<AuthGate> {
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
+        if (_autoUnlocking && !_controller.isUnlocked) {
+          return const _AutoUnlockScreen();
+        }
         if (!_controller.isUnlocked) {
           return UnlockScreen(controller: _controller);
         }
         return WorkspaceScreen(controller: _controller);
       },
+    );
+  }
+}
+
+class _AutoUnlockScreen extends StatelessWidget {
+  const _AutoUnlockScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 18),
+            Text('Opening Noterr'),
+          ],
+        ),
+      ),
     );
   }
 }

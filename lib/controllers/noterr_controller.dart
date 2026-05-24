@@ -403,7 +403,7 @@ class NoterrController extends ChangeNotifier {
   void _startSyncTimer() {
     _syncTimer?.cancel();
     if (!hasCloud || _key == null) return;
-    _syncTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+    _syncTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       if (_syncState == SyncState.syncing) return;
       unawaited(syncNow());
     });
