@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/note.dart';
@@ -140,10 +141,18 @@ class NoterrController extends ChangeNotifier {
   Future<Note> ensureTodayTodoNote() async {
     await _rollDailyBoardIfNeeded();
     final existing = todayTodoNote;
-    if (existing != null) return existing;
     final now = DateTime.now();
+    final title = _dailyTitle(now);
+    if (existing != null) {
+      if (existing.title != title) {
+        final updated = _touch(existing.copyWith(title: title));
+        await _persistAndPush(updated);
+        return updated;
+      }
+      return existing;
+    }
     final note = Note.blank(_deviceId, type: NoteType.full).copyWith(
-      title: _dailyTitle(now),
+      title: title,
       boardName: 'Today',
       isPinned: true,
       popOnDesktop: true,
@@ -515,6 +524,8 @@ class NoterrController extends ChangeNotifier {
       _lastPulledAt = DateTime.now().toUtc();
       _lastSyncAt = _lastPulledAt;
       await _saveLocal();
+      await _publishWidget();
+      notifyListeners();
       _setSync(SyncState.idle);
     } on AuthException catch (error) {
       _setError(error.message);
@@ -538,6 +549,7 @@ class NoterrController extends ChangeNotifier {
         final json = await VaultCrypto.decryptJson(payload, key);
         final note = Note.fromJson(json);
         _merge([note]);
+        await _rollDailyBoardIfNeeded();
         _lastRemoteEventAt = DateTime.now().toUtc();
         await _saveLocal();
         await _publishWidget();
@@ -759,7 +771,7 @@ class NoterrController extends ChangeNotifier {
   }
 
   String _dateLabel(DateTime date) {
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    return DateFormat('d MMM yyyy').format(date);
   }
 
   @override
