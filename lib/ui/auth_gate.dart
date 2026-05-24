@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -25,6 +27,7 @@ class AuthGate extends StatefulWidget {
 
 class _AuthGateState extends State<AuthGate> {
   late final NoterrController _controller;
+  var _autoUnlockTried = false;
 
   @override
   void initState() {
@@ -38,6 +41,17 @@ class _AuthGateState extends State<AuthGate> {
       widgetPublisher: WidgetPublisher(),
     );
     StickyWindowService.instance.bindController(_controller);
+    unawaited(_tryAutoUnlock());
+  }
+
+  Future<void> _tryAutoUnlock() async {
+    if (_autoUnlockTried) return;
+    _autoUnlockTried = true;
+    try {
+      await _controller.unlockSavedDevice();
+    } catch (_) {
+      // If the stored device key is invalid, the normal unlock screen appears.
+    }
   }
 
   @override

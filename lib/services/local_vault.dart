@@ -28,6 +28,7 @@ class LocalVault {
 
   static const _deviceIdKey = 'noterr_device_id';
   static const _saltKey = 'noterr_local_salt';
+  static const _savedPassphraseKey = 'noterr_saved_passphrase';
   static const _fileName = 'noterr_vault.json';
   static const _uuid = Uuid();
 
@@ -55,6 +56,21 @@ class LocalVault {
     final next = VaultCrypto.randomSalt();
     await _secureStorage.write(key: '$_saltKey$_keySuffix', value: next);
     return next;
+  }
+
+  Future<String?> readSavedPassphrase() {
+    return _secureStorage.read(key: '$_savedPassphraseKey$_keySuffix');
+  }
+
+  Future<void> savePassphrase(String passphrase) {
+    return _secureStorage.write(
+      key: '$_savedPassphraseKey$_keySuffix',
+      value: passphrase,
+    );
+  }
+
+  Future<void> clearSavedPassphrase() {
+    return _secureStorage.delete(key: '$_savedPassphraseKey$_keySuffix');
   }
 
   Future<File> _vaultFile() async {

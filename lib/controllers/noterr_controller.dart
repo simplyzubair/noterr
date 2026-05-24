@@ -327,6 +327,7 @@ class NoterrController extends ChangeNotifier {
     _syncTimer?.cancel();
     _dailyTimer?.cancel();
     await _remoteSub?.cancel();
+    await _localVault.clearSavedPassphrase();
     await _remote.signOut();
     _key = null;
     _notes.clear();
@@ -374,7 +375,20 @@ class NoterrController extends ChangeNotifier {
     _subscribeRemote();
     _startSyncTimer();
     _startDailyTimer();
+    await _localVault.savePassphrase(passphrase.trim());
     await _publishWidget();
+  }
+
+  Future<bool> unlockSavedDevice() async {
+    final passphrase = await _localVault.readSavedPassphrase();
+    if (passphrase == null || passphrase.trim().isEmpty) return false;
+    try {
+      await unlock(passphrase);
+      return true;
+    } catch (_) {
+      await _localVault.clearSavedPassphrase();
+      rethrow;
+    }
   }
 
   void _startSyncTimer() {

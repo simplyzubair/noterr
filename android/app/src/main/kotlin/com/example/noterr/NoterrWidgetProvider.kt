@@ -6,6 +6,9 @@ import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.StrikethroughSpan
 import android.widget.RemoteViews
 
 class NoterrWidgetProvider : AppWidgetProvider() {
@@ -32,7 +35,7 @@ class NoterrWidgetProvider : AppWidgetProvider() {
                 )
                 views.setTextViewText(
                     R.id.widget_body,
-                    widgetData.getString("body", "No notes or tasks yet")
+                    styledBody(widgetData.getString("body", "No notes or tasks yet") ?: "No notes or tasks yet")
                 )
                 views.setInt(
                     R.id.widget_root,
@@ -48,6 +51,28 @@ class NoterrWidgetProvider : AppWidgetProvider() {
             }
         }
     }
+}
+
+private fun styledBody(raw: String): SpannableString {
+    val output = StringBuilder()
+    val doneRanges = mutableListOf<Pair<Int, Int>>()
+    raw.lines().forEachIndexed { index, line ->
+        if (index > 0) output.append('\n')
+        if (line.startsWith("[x] ")) {
+            val start = output.length
+            output.append(line.removePrefix("[x] "))
+            doneRanges.add(start to output.length)
+        } else {
+            output.append(line)
+        }
+    }
+    val styled = SpannableString(output.toString())
+    doneRanges.forEach { (start, end) ->
+        if (end > start) {
+            styled.setSpan(StrikethroughSpan(), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+    }
+    return styled
 }
 
 private fun parseWidgetColor(hex: String?, fallback: String, opacity: Float): Int {

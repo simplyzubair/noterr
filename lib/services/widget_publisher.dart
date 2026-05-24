@@ -104,9 +104,12 @@ class WidgetPublisher {
     final body = note.body.trim();
     if (body.isNotEmpty) parts.add(body);
     if (note.supportsChecklist) {
-      final pending = note.checklist.where((item) => !item.done).toList();
-      if (pending.isNotEmpty) {
-        parts.add(pending.map((item) => '- ${item.text}').join('\n'));
+      final taskLines = note.checklist
+          .where((item) => item.text.trim().isNotEmpty)
+          .map((item) => item.done ? '[x] ${item.text}' : '- ${item.text}')
+          .toList();
+      if (taskLines.isNotEmpty) {
+        parts.add(taskLines.join('\n'));
       }
     }
     if (parts.isEmpty) return 'No notes or tasks yet';
