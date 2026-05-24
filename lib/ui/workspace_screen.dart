@@ -7,6 +7,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../controllers/noterr_controller.dart';
 import '../models/note.dart';
+import '../services/daily_quote.dart';
 import '../services/startup_service.dart';
 import '../services/sticky_window_service.dart';
 import 'note_colors.dart';
@@ -401,6 +402,10 @@ class _ItemEditorState extends State<_ItemEditor> {
                       ],
                     ),
                   ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _DailyQuoteStrip(quote: DailyQuote.forDate()),
+                ),
                 if (note.supportsBody)
                   TextField(
                     controller: _body,
@@ -489,6 +494,36 @@ class _ItemEditorState extends State<_ItemEditor> {
                 ),
               ],
             ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DailyQuoteStrip extends StatelessWidget {
+  const _DailyQuoteStrip({required this.quote});
+
+  final String quote;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          Icons.auto_awesome,
+          size: 14,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            quote,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black.withValues(alpha: 0.62),
+                ),
           ),
         ),
       ],

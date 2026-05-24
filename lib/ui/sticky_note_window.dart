@@ -6,6 +6,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../app/theme.dart';
 import '../models/note.dart';
+import '../services/daily_quote.dart';
 import 'note_colors.dart';
 
 class StickyNoteWindowApp extends StatelessWidget {
@@ -341,6 +342,10 @@ class _StickyNoteWindowState extends State<StickyNoteWindow>
                           hintText: 'Title',
                         ),
                       ),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _StickyQuoteStrip(quote: DailyQuote.forDate()),
+                      ),
                       Expanded(
                         child: ListView(
                           padding: EdgeInsets.zero,
@@ -434,6 +439,35 @@ class _StickyNoteWindowState extends State<StickyNoteWindow>
           ],
         ),
       ),
+    );
+  }
+}
+
+class _StickyQuoteStrip extends StatelessWidget {
+  const _StickyQuoteStrip({required this.quote});
+
+  final String quote;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.auto_awesome, size: 13, color: Colors.black54),
+        const SizedBox(width: 5),
+        Expanded(
+          child: Text(
+            quote,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.black54,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

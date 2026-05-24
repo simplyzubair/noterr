@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 
 import '../app/app_config.dart';
 import '../models/note.dart';
+import 'daily_quote.dart';
 
 class WidgetPublisher {
   static const _channel = MethodChannel('noterr/widget');
@@ -50,7 +51,7 @@ class WidgetPublisher {
       await _channel.invokeMethod<void>('publish', {
         'id': primary?.id,
         'title': primary?.title ?? 'Noterr',
-        'body': _dailyBody(primary) ?? 'No active notes',
+        'body': _withQuote(_dailyBody(primary) ?? 'No active notes'),
         'colorHex': primary?.colorHex ?? 'FFF4B8',
         'opacity': primary?.opacity ?? 1,
         'boardName': primary?.boardName ?? 'Personal',
@@ -103,6 +104,10 @@ class WidgetPublisher {
     } catch (_) {
       // Widget publishing is only available once native Android files exist.
     }
+  }
+
+  String _withQuote(String body) {
+    return '${DailyQuote.forDate()}\n\n$body';
   }
 
   String _todoBody(Note? note) {

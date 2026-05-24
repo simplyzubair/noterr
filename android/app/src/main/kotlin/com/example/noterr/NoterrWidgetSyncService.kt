@@ -19,6 +19,7 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.Calendar
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -153,7 +154,80 @@ class NoterrWidgetSyncService : Service() {
             taskLines.add(if (item.optBoolean("done", false)) "[x] $text" else "- $text")
         }
         if (taskLines.isNotEmpty()) parts.add(taskLines.joinToString("\n"))
-        return if (parts.isEmpty()) "No notes or tasks yet" else parts.joinToString("\n\n")
+        val content = if (parts.isEmpty()) "No notes or tasks yet" else parts.joinToString("\n\n")
+        return "${dailyQuote()}\n\n$content"
+    }
+
+    private fun dailyQuote(): String {
+        val quotes = listOf(
+            "Focus on the next right action.",
+            "Small steps, done daily, become momentum.",
+            "Protect your attention; it builds your life.",
+            "Begin with gratitude. Continue with discipline.",
+            "Clarity first, speed second.",
+            "Do the useful thing before the urgent noise.",
+            "A calm mind finishes better work.",
+            "Today, simplify one thing.",
+            "Progress is quiet before it is obvious.",
+            "Let purpose choose your priorities.",
+            "One completed task is better than ten worried thoughts.",
+            "Work with intention, rest without guilt.",
+            "Make the next step easy to start.",
+            "Discipline is remembering what matters.",
+            "Give your best attention to the present task.",
+            "Peace grows where your actions match your values.",
+            "Start small. Stay steady.",
+            "Do less, but do it fully.",
+            "Your future is built in today's habits.",
+            "Write it down. Clear the mind.",
+            "Consistency carries what motivation starts.",
+            "Choose progress over perfection.",
+            "Let the day have a direction.",
+            "A focused hour can change the whole day.",
+            "Be faithful with the work in front of you.",
+            "Order outside begins with order inside.",
+            "Finish the tiny promise.",
+            "Less distraction, more devotion.",
+            "Move with patience and purpose.",
+            "The most important task deserves the quietest mind.",
+            "Quran 94:5 - With hardship comes ease; keep moving.",
+            "Quran 2:153 - Seek help through patience and prayer.",
+            "Quran 14:7 - Gratitude opens the door to increase.",
+            "Quran 53:39 - You gain from what you strive for.",
+            "Quran 13:11 - Change begins with what is within you.",
+            "Quran 3:159 - Decide, then trust Allah.",
+            "Quran 65:3 - Trust Allah; He is enough.",
+            "Quran 39:10 - The patient are rewarded beyond measure.",
+            "Quran 11:88 - Success is only through Allah.",
+            "Quran 29:69 - Strive sincerely; guidance opens.",
+            "Quran 103:3 - Faith, good work, truth, and patience.",
+            "Quran 16:127 - Be patient; your patience is from Allah.",
+            "Quran 20:114 - Ask for increase in knowledge.",
+            "Quran 17:84 - Work according to your way; improve it.",
+            "Quran 23:1 - Focus and humility lead to success.",
+            "Quran 24:38 - Allah rewards the best of your actions.",
+            "Quran 67:15 - Walk the earth and seek provision.",
+            "Quran 73:8 - Remember your Lord and devote yourself.",
+            "Quran 76:9 - Serve with sincerity, not applause.",
+            "Quran 87:8 - The right path can be made easy.",
+            "Sabr is strength under control.",
+            "Shukr turns today's work into worship.",
+            "Make effort, then leave the outcome to Allah.",
+            "Good work begins with a clean intention.",
+            "A grateful heart works with lighter hands.",
+            "Patience is not delay; it is steady movement.",
+            "Barakah grows where focus and honesty meet.",
+            "Do the task with ihsan: quietly, fully, well.",
+            "Trust Allah, then do your part properly.",
+            "Let your work be useful, sincere, and steady."
+        )
+        val calendar = Calendar.getInstance()
+        calendar.set(Calendar.HOUR_OF_DAY, 0)
+        calendar.set(Calendar.MINUTE, 0)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        val day = calendar.timeInMillis / 86_400_000L
+        return quotes[(day % quotes.size).toInt()]
     }
 
     private fun syncCredentials(passphrase: String): Pair<String, String> {
