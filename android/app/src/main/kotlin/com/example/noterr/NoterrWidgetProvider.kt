@@ -18,7 +18,6 @@ class NoterrWidgetProvider : AppWidgetProvider() {
         appWidgetIds: IntArray
     ) {
         updateWidgets(context, appWidgetManager, appWidgetIds)
-        NoterrWidgetSyncWorker.schedule(context)
     }
 
     companion object {

@@ -1,23 +1,9 @@
 import 'package:flutter/services.dart';
 
-import '../app/app_config.dart';
 import '../models/note.dart';
 
 class WidgetPublisher {
   static const _channel = MethodChannel('noterr/widget');
-
-  Future<void> configureBackgroundSync(String passphrase) async {
-    if (!AppConfig.hasSupabase) return;
-    try {
-      await _channel.invokeMethod<void>('configureBackgroundSync', {
-        'supabaseUrl': AppConfig.supabaseUrl,
-        'supabaseAnonKey': AppConfig.supabaseAnonKey,
-        'passphrase': passphrase,
-      });
-    } catch (_) {
-      // Android-only background widget sync is unavailable elsewhere.
-    }
-  }
 
   Future<void> publish(List<Note> notes) async {
     final visible = notes
