@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Noterr</string>
-    <string name="noterr_widget_description">Pinned Noterr sticky note</string>
+    <string name="noterr_widget_description">Today notes and tasks from Noterr</string>
     <string name="noterr_todo_widget_description">Today To Do from Noterr</string>
     <string name="noterr_sticky_widget_description">Sticky Notes from Noterr</string>
 </resources>

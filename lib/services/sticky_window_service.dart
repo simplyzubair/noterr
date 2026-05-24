@@ -60,10 +60,19 @@ class StickyWindowService {
 
   Future<void> show(Note note) async {
     if (!isSupported) return;
+    final target = _controller?.todayTodoNote ?? note;
 
-    final existingWindow = _noteWindows[note.id];
+    for (final entry in _noteWindows.entries.toList()) {
+      if (entry.key == target.id) continue;
+      _noteWindows.remove(entry.key);
+      unawaited(_invokeSafely(entry.value, 'sticky-note-lock'));
+    }
+
+    final existingWindow = _noteWindows[target.id];
     if (existingWindow != null) {
       await existingWindow.show();
+      await _invokeSafely(
+          existingWindow, 'sticky-note-replaced', target.toJson());
       return;
     }
 
@@ -71,12 +80,12 @@ class StickyWindowService {
       WindowConfiguration(
         arguments: jsonEncode({
           'type': 'sticky',
-          'note': note.toJson(),
+          'note': target.toJson(),
         }),
         hiddenAtLaunch: true,
       ),
     );
-    _noteWindows[note.id] = window;
+    _noteWindows[target.id] = window;
     await window.show();
   }
 
@@ -96,10 +105,14 @@ class StickyWindowService {
       return;
     }
 
+    final target = controller.todayTodoNote;
+
     for (final entry in _noteWindows.entries.toList()) {
       final note =
           controller.notes.where((item) => item.id == entry.key).firstOrNull;
       if (note == null ||
+          target == null ||
+          note.id != target.id ||
           note.isDeleted ||
           note.isArchived ||
           !note.popOnDesktop) {
@@ -111,18 +124,16 @@ class StickyWindowService {
           _invokeSafely(entry.value, 'sticky-note-replaced', note.toJson()));
     }
 
-    for (final note in controller.notes) {
-      if (!note.popOnDesktop ||
-          (note.deviceId == controller.deviceId && note.boardName != 'Today') ||
-          note.isArchived ||
-          note.isDeleted ||
-          _noteWindows.containsKey(note.id)) {
-        continue;
-      }
-      final dismissedRevision = _dismissedRemoteRevision[note.id] ?? 0;
-      if (note.revision <= dismissedRevision) continue;
-      unawaited(show(note));
+    if (target == null ||
+        !target.popOnDesktop ||
+        target.isArchived ||
+        target.isDeleted ||
+        _noteWindows.containsKey(target.id)) {
+      return;
     }
+    final dismissedRevision = _dismissedRemoteRevision[target.id] ?? 0;
+    if (target.revision <= dismissedRevision) return;
+    unawaited(show(target));
   }
 
   Future<void> _invokeSafely(

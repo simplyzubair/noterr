@@ -21,8 +21,6 @@ class WorkspaceScreen extends StatefulWidget {
 
 class _WorkspaceScreenState extends State<WorkspaceScreen>
     with WindowListener, TrayListener {
-  final _quickText = TextEditingController();
-  NoteType _quickType = NoteType.checklist;
   bool _allowClose = false;
 
   @override
@@ -40,7 +38,6 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
 
   @override
   void dispose() {
-    _quickText.dispose();
     if (_isDesktop) {
       windowManager.removeListener(this);
       trayManager.removeListener(this);
@@ -124,39 +121,10 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     } catch (_) {}
   }
 
-  Future<void> _createQuickItem() async {
-    final text = _quickText.text.trim();
-    if (text.isEmpty && _quickType == NoteType.note) return;
-    _quickText.clear();
-
-    if (_quickType == NoteType.checklist) {
-      if (text.isEmpty) {
-        final note = await widget.controller.ensureTodayTodoNote();
-        _openItem(note);
-        return;
-      }
-      await widget.controller.addTodayTask(text);
-      return;
-    }
-
-    await widget.controller.addTodayNote(text);
-  }
-
   void _openHistory() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => _HistoryScreen(controller: widget.controller),
-      ),
-    );
-  }
-
-  void _openItem(Note note) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => _ItemDetailScreen(
-          controller: widget.controller,
-          noteId: note.id,
-        ),
       ),
     );
   }
@@ -166,7 +134,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     return AnimatedBuilder(
       animation: widget.controller,
       builder: (context, _) {
-        final items = widget.controller.workspaceItems;
+        final dailyBoard = widget.controller.todayTodoNote;
         return Scaffold(
           appBar: AppBar(
             title: const Text('Noterr'),
@@ -196,233 +164,19 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
             ],
           ),
           body: SafeArea(
-            child: Column(
-              children: [
-                _QuickCreateBar(
-                  controller: _quickText,
-                  type: _quickType,
-                  onTypeChanged: (type) => setState(() => _quickType = type),
-                  onCreate: _createQuickItem,
-                ),
-                Expanded(
-                  child: items.isEmpty
-                      ? const Center(child: Text('Add a note or checklist.'))
-                      : ListView.separated(
-                          padding: const EdgeInsets.all(14),
-                          itemCount: items.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 12),
-                          itemBuilder: (context, index) {
-                            final note = items[index];
-                            return _ItemCard(
-                              key: ValueKey(note.id),
-                              note: note,
-                              controller: widget.controller,
-                              onOpen: () => _openItem(note),
-                            );
-                          },
-                        ),
-                ),
-              ],
-            ),
+            child: dailyBoard == null
+                ? const Center(child: CircularProgressIndicator())
+                : _ItemEditor(
+                    controller: widget.controller,
+                    note: dailyBoard,
+                    showTitle: false,
+                  ),
           ),
         );
       },
     );
   }
 }
-
-class _QuickCreateBar extends StatelessWidget {
-  const _QuickCreateBar({
-    required this.controller,
-    required this.type,
-    required this.onTypeChanged,
-    required this.onCreate,
-  });
-
-  final TextEditingController controller;
-  final NoteType type;
-  final ValueChanged<NoteType> onTypeChanged;
-  final VoidCallback onCreate;
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: SegmentedButton<NoteType>(
-                    segments: const [
-                      ButtonSegment(
-                        value: NoteType.checklist,
-                        icon: Icon(Icons.checklist),
-                        label: Text('Task'),
-                      ),
-                      ButtonSegment(
-                        value: NoteType.note,
-                        icon: Icon(Icons.sticky_note_2_outlined),
-                        label: Text('Note'),
-                      ),
-                    ],
-                    selected: {type},
-                    onSelectionChanged: (selected) =>
-                        onTypeChanged(selected.first),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: controller,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => onCreate(),
-              decoration: InputDecoration(
-                hintText: type == NoteType.checklist
-                    ? 'Add a task and press Enter'
-                    : 'Add a note to today and press Enter',
-                prefixIcon: Icon(
-                  type == NoteType.checklist
-                      ? Icons.add_task
-                      : Icons.note_add_outlined,
-                ),
-                suffixIcon: IconButton(
-                  tooltip: 'Add',
-                  onPressed: onCreate,
-                  icon: const Icon(Icons.add),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ItemCard extends StatelessWidget {
-  const _ItemCard({
-    super.key,
-    required this.note,
-    required this.controller,
-    required this.onOpen,
-  });
-
-  final Note note;
-  final NoterrController controller;
-  final VoidCallback onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    final activeCount = note.checklist.where((item) => !item.done).length;
-    final doneCount = note.checklist.length - activeCount;
-    return Material(
-      color: noteColor(note.colorHex).withValues(alpha: note.opacity),
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onOpen,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    note.type == NoteType.full
-                        ? Icons.today_outlined
-                        : note.type == NoteType.checklist
-                            ? Icons.checklist
-                            : Icons.sticky_note_2_outlined,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      note.title.isEmpty ? 'Untitled' : note.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Show as desktop sticky',
-                    onPressed: () => StickyWindowService.instance.show(note),
-                    icon: const Icon(Icons.open_in_new),
-                  ),
-                  PopupMenuButton<_CardAction>(
-                    tooltip: 'More',
-                    onSelected: (action) {
-                      switch (action) {
-                        case _CardAction.archive:
-                          controller.archiveNote(note, true);
-                        case _CardAction.delete:
-                          controller.softDeleteNote(note);
-                      }
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
-                        value: _CardAction.archive,
-                        child: ListTile(
-                          leading: Icon(Icons.archive_outlined),
-                          title: Text('Archive'),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: _CardAction.delete,
-                        child: ListTile(
-                          leading: Icon(Icons.delete_outline),
-                          title: Text('Delete'),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text('$activeCount left, $doneCount done'),
-              if (note.preview.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text(
-                  note.preview,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  if (note.showOnMobileWidget)
-                    const Chip(
-                      avatar: Icon(Icons.phone_android, size: 16),
-                      label: Text('Widget'),
-                    ),
-                  if (note.popOnDesktop)
-                    const Chip(
-                      avatar: Icon(Icons.desktop_windows, size: 16),
-                      label: Text('Desktop'),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-enum _CardAction { archive, delete }
 
 class _ItemDetailScreen extends StatelessWidget {
   const _ItemDetailScreen({
@@ -475,10 +229,12 @@ class _ItemEditor extends StatefulWidget {
   const _ItemEditor({
     required this.controller,
     required this.note,
+    this.showTitle = true,
   });
 
   final NoterrController controller;
   final Note note;
+  final bool showTitle;
 
   @override
   State<_ItemEditor> createState() => _ItemEditorState();
@@ -551,18 +307,44 @@ class _ItemEditorState extends State<_ItemEditor> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                TextField(
-                  controller: _title,
-                  onChanged: (value) =>
-                      widget.controller.updateNote(note.copyWith(title: value)),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    hintText: 'Title',
+                if (widget.showTitle)
+                  TextField(
+                    controller: _title,
+                    onChanged: (value) => widget.controller
+                        .updateNote(note.copyWith(title: value)),
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      hintText: 'Title',
+                    ),
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.today_outlined),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            note.title,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Show as desktop sticky',
+                          onPressed: () =>
+                              StickyWindowService.instance.show(note),
+                          icon: const Icon(Icons.open_in_new),
+                        ),
+                      ],
+                    ),
                   ),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                ),
                 if (note.supportsBody)
                   TextField(
                     controller: _body,

@@ -21,11 +21,8 @@ class WidgetPublisher {
     final todoNotes =
         widgetNotes.where((note) => note.supportsChecklist).toList();
     final stickyNotes = widgetNotes.where((note) => note.supportsBody).toList();
-    final todayTodos =
-        todoNotes.where((note) => note.boardName == 'Today').toList();
-    final todayTodo = todayTodos.isEmpty ? null : todayTodos.first;
     final primaryTodo =
-        dailyBoard ?? todayTodo ?? (todoNotes.isEmpty ? null : todoNotes.first);
+        dailyBoard ?? (todoNotes.isEmpty ? null : todoNotes.first);
     final primarySticky =
         dailyBoard ?? (stickyNotes.isEmpty ? null : stickyNotes.first);
     final primary = dailyBoard ??
@@ -39,7 +36,7 @@ class WidgetPublisher {
       await _channel.invokeMethod<void>('publish', {
         'id': primary?.id,
         'title': primary?.title ?? 'Noterr',
-        'body': primary?.preview ?? 'No active notes',
+        'body': _dailyBody(primary) ?? 'No active notes',
         'colorHex': primary?.colorHex ?? 'FFF4B8',
         'opacity': primary?.opacity ?? 1,
         'boardName': primary?.boardName ?? 'Personal',
@@ -99,6 +96,21 @@ class WidgetPublisher {
     final pending = note.checklist.where((item) => !item.done).toList();
     if (pending.isEmpty) return 'All done for today';
     return pending.map((item) => '- ${item.text}').join('\n');
+  }
+
+  String? _dailyBody(Note? note) {
+    if (note == null) return null;
+    final parts = <String>[];
+    final body = note.body.trim();
+    if (body.isNotEmpty) parts.add(body);
+    if (note.supportsChecklist) {
+      final pending = note.checklist.where((item) => !item.done).toList();
+      if (pending.isNotEmpty) {
+        parts.add(pending.map((item) => '- ${item.text}').join('\n'));
+      }
+    }
+    if (parts.isEmpty) return 'No notes or tasks yet';
+    return parts.join('\n\n');
   }
 
   String _stickyBody(List<Note> notes) {

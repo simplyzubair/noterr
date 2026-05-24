@@ -148,7 +148,7 @@ class NoterrController extends ChangeNotifier {
       isPinned: true,
       popOnDesktop: true,
       showOnMobileWidget: true,
-      colorHex: 'FFF4B8',
+      colorHex: 'F2F2F2',
     );
     _notes.add(note);
     await _persistAndPush(note);
@@ -613,7 +613,7 @@ class NoterrController extends ChangeNotifier {
             isPinned: true,
             popOnDesktop: true,
             showOnMobileWidget: true,
-            colorHex: 'FFF4B8',
+            colorHex: 'F2F2F2',
           );
       final existingTexts =
           today.checklist.map((item) => item.text.trim()).toSet();

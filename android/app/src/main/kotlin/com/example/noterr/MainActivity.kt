@@ -22,7 +22,9 @@ class MainActivity : FlutterActivity() {
             val prefs = getSharedPreferences("noterr_widget", Context.MODE_PRIVATE)
             prefs.edit()
                 .putString("title", call.argument<String>("title") ?: "Noterr")
-                .putString("body", call.argument<String>("body") ?: "No active notes")
+                .putString("body", call.argument<String>("body") ?: "No notes or tasks yet")
+                .putString("colorHex", call.argument<String>("colorHex") ?: "F2F2F2")
+                .putFloat("opacity", (call.argument<Double>("opacity") ?: 1.0).toFloat())
                 .putString("todo_title", call.argument<String>("todoTitle") ?: "Today To Do")
                 .putString("todo_body", call.argument<String>("todoBody") ?: "No tasks yet")
                 .putString("todo_color", call.argument<String>("todoColorHex") ?: "E7F6EF")
@@ -34,15 +36,10 @@ class MainActivity : FlutterActivity() {
                 .apply()
 
             val manager = AppWidgetManager.getInstance(this)
-            NoterrTodoWidgetProvider.updateWidgets(
+            NoterrWidgetProvider.updateWidgets(
                 this,
                 manager,
-                manager.getAppWidgetIds(ComponentName(this, NoterrTodoWidgetProvider::class.java))
-            )
-            NoterrStickyWidgetProvider.updateWidgets(
-                this,
-                manager,
-                manager.getAppWidgetIds(ComponentName(this, NoterrStickyWidgetProvider::class.java))
+                manager.getAppWidgetIds(ComponentName(this, NoterrWidgetProvider::class.java))
             )
             result.success(null)
         }

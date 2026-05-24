@@ -34,26 +34,15 @@
             android:name="flutterEmbedding"
             android:value="2" />
         <receiver
-            android:name=".NoterrTodoWidgetProvider"
+            android:name=".NoterrWidgetProvider"
             android:exported="true"
-            android:label="Noterr To Do">
+            android:label="Noterr Daily Board">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/noterr_todo_widget_info" />
-        </receiver>
-        <receiver
-            android:name=".NoterrStickyWidgetProvider"
-            android:exported="true"
-            android:label="Noterr Sticky Notes">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/noterr_sticky_widget_info" />
+                android:resource="@xml/noterr_widget_info" />
         </receiver>
     </application>
     <!-- Required to query activities that can process text, see:
