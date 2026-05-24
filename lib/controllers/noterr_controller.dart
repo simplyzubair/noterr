@@ -385,6 +385,7 @@ class NoterrController extends ChangeNotifier {
     _startSyncTimer();
     _startDailyTimer();
     await _localVault.savePassphrase(passphrase.trim());
+    await _widgetPublisher.configureBackgroundSync(passphrase.trim());
     await _publishWidget();
   }
 

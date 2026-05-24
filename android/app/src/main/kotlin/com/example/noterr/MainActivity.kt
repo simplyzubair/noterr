@@ -14,34 +14,46 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             "noterr/widget"
         ).setMethodCallHandler { call, result ->
-            if (call.method != "publish") {
-                result.notImplemented()
+            if (call.method == "configureBackgroundSync") {
+                val prefs = getSharedPreferences("noterr_background_sync", Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putString("supabase_url", call.argument<String>("supabaseUrl") ?: "")
+                    .putString("supabase_anon_key", call.argument<String>("supabaseAnonKey") ?: "")
+                    .putString("passphrase", call.argument<String>("passphrase") ?: "")
+                    .apply()
+                NoterrWidgetSyncWorker.schedule(this)
+                result.success(null)
                 return@setMethodCallHandler
             }
 
-            val prefs = getSharedPreferences("noterr_widget", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putString("title", call.argument<String>("title") ?: "Noterr")
-                .putString("body", call.argument<String>("body") ?: "No notes or tasks yet")
-                .putString("colorHex", call.argument<String>("colorHex") ?: "F2F2F2")
-                .putFloat("opacity", (call.argument<Double>("opacity") ?: 1.0).toFloat())
-                .putString("todo_title", call.argument<String>("todoTitle") ?: "Today To Do")
-                .putString("todo_body", call.argument<String>("todoBody") ?: "No tasks yet")
-                .putString("todo_color", call.argument<String>("todoColorHex") ?: "E7F6EF")
-                .putFloat("todo_opacity", (call.argument<Double>("todoOpacity") ?: 1.0).toFloat())
-                .putString("sticky_title", call.argument<String>("stickyTitle") ?: "Sticky Notes")
-                .putString("sticky_body", call.argument<String>("stickyBody") ?: "No sticky notes yet")
-                .putString("sticky_color", call.argument<String>("stickyColorHex") ?: "FFF4B8")
-                .putFloat("sticky_opacity", (call.argument<Double>("stickyOpacity") ?: 1.0).toFloat())
-                .apply()
+            if (call.method == "publish") {
+                val prefs = getSharedPreferences("noterr_widget", Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putString("title", call.argument<String>("title") ?: "Noterr")
+                    .putString("body", call.argument<String>("body") ?: "No notes or tasks yet")
+                    .putString("colorHex", call.argument<String>("colorHex") ?: "F2F2F2")
+                    .putFloat("opacity", (call.argument<Double>("opacity") ?: 1.0).toFloat())
+                    .putString("todo_title", call.argument<String>("todoTitle") ?: "Today To Do")
+                    .putString("todo_body", call.argument<String>("todoBody") ?: "No tasks yet")
+                    .putString("todo_color", call.argument<String>("todoColorHex") ?: "E7F6EF")
+                    .putFloat("todo_opacity", (call.argument<Double>("todoOpacity") ?: 1.0).toFloat())
+                    .putString("sticky_title", call.argument<String>("stickyTitle") ?: "Sticky Notes")
+                    .putString("sticky_body", call.argument<String>("stickyBody") ?: "No sticky notes yet")
+                    .putString("sticky_color", call.argument<String>("stickyColorHex") ?: "FFF4B8")
+                    .putFloat("sticky_opacity", (call.argument<Double>("stickyOpacity") ?: 1.0).toFloat())
+                    .apply()
 
-            val manager = AppWidgetManager.getInstance(this)
-            NoterrWidgetProvider.updateWidgets(
-                this,
-                manager,
-                manager.getAppWidgetIds(ComponentName(this, NoterrWidgetProvider::class.java))
-            )
-            result.success(null)
+                val manager = AppWidgetManager.getInstance(this)
+                NoterrWidgetProvider.updateWidgets(
+                    this,
+                    manager,
+                    manager.getAppWidgetIds(ComponentName(this, NoterrWidgetProvider::class.java))
+                )
+                result.success(null)
+                return@setMethodCallHandler
+            }
+
+            result.notImplemented()
         }
     }
 }
