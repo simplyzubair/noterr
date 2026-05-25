@@ -13,6 +13,19 @@ import '../services/widget_publisher.dart';
 
 enum SyncState { offline, idle, syncing, error }
 
+class DueChecklistReminder {
+  const DueChecklistReminder({
+    required this.note,
+    required this.item,
+  });
+
+  final Note note;
+  final ChecklistItem item;
+
+  String get key =>
+      '${note.id}:${item.id}:${item.reminderAt?.toIso8601String()}';
+}
+
 class NoterrController extends ChangeNotifier {
   NoterrController({
     required LocalVault localVault,
@@ -129,7 +142,7 @@ class NoterrController extends ChangeNotifier {
   }
 
   List<Note> get historyNotes {
-    final oldest = DateTime.now().toUtc().subtract(const Duration(days: 30));
+    final oldest = DateTime.now().toUtc().subtract(const Duration(days: 365));
     return _notes.where((note) {
       return !note.isDeleted &&
           note.isArchived &&
@@ -137,6 +150,25 @@ class NoterrController extends ChangeNotifier {
           note.createdAt.isAfter(oldest);
     }).toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  }
+
+  List<DueChecklistReminder> get dueChecklistReminders {
+    final now = DateTime.now().toUtc();
+    final reminders = <DueChecklistReminder>[];
+    for (final note in _notes) {
+      if (note.isDeleted || note.isArchived) continue;
+      for (final item in note.checklist) {
+        final dueAt = item.reminderAt;
+        if (item.done || item.reminderDone || dueAt == null) continue;
+        if (!dueAt.toUtc().isAfter(now)) {
+          reminders.add(DueChecklistReminder(note: note, item: item));
+        }
+      }
+    }
+    reminders.sort(
+      (a, b) => a.item.reminderAt!.compareTo(b.item.reminderAt!),
+    );
+    return reminders;
   }
 
   Future<Note> ensureTodayTodoNote() async {
@@ -280,6 +312,57 @@ class NoterrController extends ChangeNotifier {
     );
   }
 
+  Future<void> toggleFocusTask(Note note, ChecklistItem item) {
+    final shouldFocus = !item.isFocus;
+    return updateNote(
+      note.copyWith(
+        checklist: note.checklist
+            .map(
+              (current) => current.id == item.id
+                  ? current.copyWith(isFocus: shouldFocus)
+                  : current.copyWith(isFocus: false),
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  Future<void> setChecklistReminder(
+    Note note,
+    ChecklistItem item,
+    DateTime? dueAt,
+  ) {
+    return updateNote(
+      note.copyWith(
+        checklist: note.checklist
+            .map(
+              (current) => current.id == item.id
+                  ? current.copyWith(
+                      reminderAt: dueAt?.toUtc(),
+                      clearReminder: dueAt == null,
+                      reminderDone: false,
+                    )
+                  : current,
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  Future<void> dismissChecklistReminder(Note note, ChecklistItem item) {
+    return updateNote(
+      note.copyWith(
+        checklist: note.checklist
+            .map(
+              (current) => current.id == item.id
+                  ? current.copyWith(reminderDone: true)
+                  : current,
+            )
+            .toList(),
+      ),
+    );
+  }
+
   Future<void> toggleChecklistItem(Note note, ChecklistItem item) {
     return updateNote(
       note.copyWith(
@@ -310,6 +393,45 @@ class NoterrController extends ChangeNotifier {
         checklist: note.checklist.where((item) => !item.done).toList(),
       ),
     );
+  }
+
+  Future<void> applyTemplate(String name) async {
+    final tasks = switch (name) {
+      'work' => [
+          'Choose today\'s one priority',
+          'Clear urgent messages',
+          'Deep work block',
+          'Follow up before closing work',
+        ],
+      'calls' => [
+          'List people to call',
+          'Make the important call first',
+          'Send recap or next step',
+        ],
+      'shopping' => [
+          'Check pantry/fridge',
+          'List essentials',
+          'Buy only what is needed',
+        ],
+      'prayer' => [
+          'Fajr',
+          'Dhuhr',
+          'Asr',
+          'Maghrib',
+          'Isha',
+          'Quran / reflection',
+        ],
+      'project' => [
+          'Define next milestone',
+          'Pick one blocker',
+          'Ship one small improvement',
+          'Write next action',
+        ],
+      _ => <String>[],
+    };
+    for (final task in tasks) {
+      await addTodayTask(task);
+    }
   }
 
   List<Note> dueReminderNotes(DateTime now) {
@@ -677,7 +799,7 @@ class NoterrController extends ChangeNotifier {
       carryTasks.addAll(
         board.checklist.where(
           (item) => !item.done && item.text.trim().isNotEmpty,
-        ),
+        ).map((item) => item.copyWith(carriedFrom: board.createdAt)),
       );
       await _persistAndPush(
         _touch(
@@ -709,13 +831,20 @@ class NoterrController extends ChangeNotifier {
         ...today.checklist,
         ...carryTasks
             .where((item) => !existingTexts.contains(item.text.trim()))
-            .map((item) => ChecklistItem(text: item.text)),
+            .map(
+              (item) => ChecklistItem(
+                text: item.text,
+                carriedFrom: item.carriedFrom ?? now,
+                reminderAt: item.reminderAt,
+                isFocus: item.isFocus,
+              ),
+            ),
       ];
       await _persistAndPush(_touch(today.copyWith(checklist: mergedTasks)));
     }
 
     await _mergeDuplicateTodayBoards(now);
-    await _deleteHistoryOlderThan30Days();
+    await _deleteHistoryOlderThan365Days();
   }
 
   Future<void> _mergeDuplicateTodayBoards(DateTime now) async {
@@ -770,8 +899,8 @@ class NoterrController extends ChangeNotifier {
     }
   }
 
-  Future<void> _deleteHistoryOlderThan30Days() async {
-    final oldest = DateTime.now().toUtc().subtract(const Duration(days: 30));
+  Future<void> _deleteHistoryOlderThan365Days() async {
+    final oldest = DateTime.now().toUtc().subtract(const Duration(days: 365));
     final oldHistory = _notes.where((note) {
       return !note.isDeleted &&
           note.isArchived &&

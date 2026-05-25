@@ -13,6 +13,7 @@ import 'ui/sticky_note_window.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  final startHidden = args.contains('--start-hidden');
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     final multiWindowController = await WindowController.fromCurrentEngine();
@@ -78,8 +79,13 @@ Future<void> main(List<String> args) async {
       title: AppConfig.mobilePreview ? 'Noterr Mobile Preview' : 'Noterr',
     );
     await windowManager.waitUntilReadyToShow(options, () async {
-      await windowManager.show();
-      await windowManager.focus();
+      if (startHidden) {
+        await windowManager.setSkipTaskbar(true);
+        await windowManager.hide();
+      } else {
+        await windowManager.show();
+        await windowManager.focus();
+      }
     });
   }
 

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -26,6 +27,9 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   final _startupService = const StartupService();
   bool _allowClose = false;
   bool _startOnLogin = true;
+  bool _privacyHidden = false;
+  Timer? _reminderTimer;
+  final Set<String> _shownReminderKeys = {};
 
   @override
   void initState() {
@@ -37,7 +41,12 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.controller.ensureTodayTodoNote();
+      _checkTaskReminders();
     });
+    _reminderTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => _checkTaskReminders(),
+    );
   }
 
   @override
@@ -46,6 +55,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       windowManager.removeListener(this);
       trayManager.removeListener(this);
     }
+    _reminderTimer?.cancel();
     super.dispose();
   }
 
@@ -62,6 +72,16 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       await trayManager.setContextMenu(
         Menu(
           items: [
+            MenuItem(key: 'quick_task', label: 'Quick add task'),
+            MenuItem(key: 'quick_note', label: 'Quick add note'),
+            MenuItem.separator(),
+            MenuItem(key: 'template_work', label: 'Template: Work day'),
+            MenuItem(key: 'template_calls', label: 'Template: Calls'),
+            MenuItem(key: 'template_shopping', label: 'Template: Shopping'),
+            MenuItem(key: 'template_prayer', label: 'Template: Prayer / habits'),
+            MenuItem(key: 'template_project', label: 'Template: Project tasks'),
+            MenuItem.separator(),
+            MenuItem(key: 'toggle_privacy', label: 'Hide/show sticky'),
             MenuItem(key: 'show_window', label: 'Open Noterr'),
             MenuItem.separator(),
             MenuItem(key: 'exit_app', label: 'Exit Noterr'),
@@ -95,6 +115,22 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
     switch (menuItem.key) {
+      case 'quick_task':
+        unawaited(_openQuickAdd(isTask: true));
+      case 'quick_note':
+        unawaited(_openQuickAdd(isTask: false));
+      case 'template_work':
+        unawaited(widget.controller.applyTemplate('work'));
+      case 'template_calls':
+        unawaited(widget.controller.applyTemplate('calls'));
+      case 'template_shopping':
+        unawaited(widget.controller.applyTemplate('shopping'));
+      case 'template_prayer':
+        unawaited(widget.controller.applyTemplate('prayer'));
+      case 'template_project':
+        unawaited(widget.controller.applyTemplate('project'));
+      case 'toggle_privacy':
+        unawaited(_togglePrivacy());
       case 'show_window':
         unawaited(_showFromTray());
       case 'exit_app':
@@ -115,6 +151,59 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       await windowManager.show();
       await windowManager.focus();
     } catch (_) {}
+  }
+
+  Future<void> _openQuickAdd({required bool isTask}) async {
+    await _showFromTray();
+    if (!mounted) return;
+    final controller = TextEditingController();
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(isTask ? 'Quick add task' : 'Quick add note'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: isTask ? 1 : 3,
+          maxLines: isTask ? 1 : 6,
+          textInputAction: isTask ? TextInputAction.done : TextInputAction.newline,
+          decoration: InputDecoration(
+            hintText: isTask ? 'Task' : 'Note',
+          ),
+          onSubmitted: isTask
+              ? (_) => Navigator.of(context).pop(controller.text)
+              : null,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    final text = value?.trim();
+    if (text == null || text.isEmpty) return;
+    if (isTask) {
+      await widget.controller.addTodayTask(text);
+    } else {
+      await widget.controller.addTodayNote(text);
+    }
+    await StickyWindowService.instance.showDailySticky();
+  }
+
+  Future<void> _togglePrivacy() async {
+    _privacyHidden = !_privacyHidden;
+    if (_privacyHidden) {
+      await StickyWindowService.instance.hideAll();
+    } else {
+      await StickyWindowService.instance.showDailySticky();
+    }
   }
 
   Future<void> _exitApp() async {
@@ -179,6 +268,132 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     );
   }
 
+  void _openDailyReview() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _DailyReviewScreen(controller: widget.controller),
+      ),
+    );
+  }
+
+  void _openTemplates() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+          children: [
+            Text(
+              'Templates',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            _TemplateTile(
+              icon: Icons.work_outline,
+              title: 'Work day',
+              onTap: () => _applyTemplateAndClose('work'),
+            ),
+            _TemplateTile(
+              icon: Icons.call_outlined,
+              title: 'Calls',
+              onTap: () => _applyTemplateAndClose('calls'),
+            ),
+            _TemplateTile(
+              icon: Icons.shopping_basket_outlined,
+              title: 'Shopping',
+              onTap: () => _applyTemplateAndClose('shopping'),
+            ),
+            _TemplateTile(
+              icon: Icons.self_improvement,
+              title: 'Prayer / habits',
+              onTap: () => _applyTemplateAndClose('prayer'),
+            ),
+            _TemplateTile(
+              icon: Icons.account_tree_outlined,
+              title: 'Project tasks',
+              onTap: () => _applyTemplateAndClose('project'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _applyTemplateAndClose(String name) {
+    Navigator.of(context).pop();
+    unawaited(widget.controller.applyTemplate(name));
+  }
+
+  void _checkTaskReminders() {
+    if (!mounted || !widget.controller.isUnlocked) return;
+    for (final reminder in widget.controller.dueChecklistReminders) {
+      if (_shownReminderKeys.contains(reminder.key)) continue;
+      _shownReminderKeys.add(reminder.key);
+      _showTaskReminder(reminder);
+      break;
+    }
+  }
+
+  Future<void> _showTaskReminder(DueChecklistReminder reminder) async {
+    if (_isDesktop) {
+      unawaited(StickyWindowService.instance.show(reminder.note));
+    }
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Task reminder'),
+        content: Text(reminder.item.text),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('dismiss'),
+            child: const Text('Dismiss'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('later'),
+            child: const Text('15 min'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('tomorrow'),
+            child: const Text('Tomorrow'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop('done'),
+            child: const Text('Done'),
+          ),
+        ],
+      ),
+    );
+    switch (result) {
+      case 'later':
+        await widget.controller.setChecklistReminder(
+          reminder.note,
+          reminder.item,
+          DateTime.now().add(const Duration(minutes: 15)),
+        );
+      case 'tomorrow':
+        await widget.controller.setChecklistReminder(
+          reminder.note,
+          reminder.item,
+          DateTime.now().add(const Duration(days: 1)),
+        );
+      case 'done':
+        await widget.controller.toggleChecklistItem(
+          reminder.note,
+          reminder.item,
+        );
+      case 'dismiss':
+        await widget.controller.dismissChecklistReminder(
+          reminder.note,
+          reminder.item,
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -199,6 +414,16 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                 tooltip: 'History',
                 onPressed: _openHistory,
                 icon: const Icon(Icons.history),
+              ),
+              IconButton(
+                tooltip: 'Daily review',
+                onPressed: _openDailyReview,
+                icon: const Icon(Icons.fact_check_outlined),
+              ),
+              IconButton(
+                tooltip: 'Templates',
+                onPressed: _openTemplates,
+                icon: const Icon(Icons.dashboard_customize_outlined),
               ),
               if (_isDesktop)
                 IconButton(
@@ -443,6 +668,11 @@ class _ItemEditorState extends State<_ItemEditor> {
                           text,
                         ),
                         onEnter: () => _addChecklistItem(item),
+                        onFocus: () => widget.controller.toggleFocusTask(
+                          note,
+                          item,
+                        ),
+                        onReminder: () => _pickReminder(item),
                         onRemove: () =>
                             widget.controller.removeChecklistItem(note, item),
                       ),
@@ -499,6 +729,67 @@ class _ItemEditorState extends State<_ItemEditor> {
       ],
     );
   }
+
+  Future<void> _pickReminder(ChecklistItem item) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.today_outlined),
+              title: const Text('Later today'),
+              onTap: () => Navigator.of(context).pop('today'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.wb_sunny_outlined),
+              title: const Text('Tomorrow morning'),
+              onTap: () => Navigator.of(context).pop('tomorrow'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.schedule),
+              title: const Text('Pick time'),
+              onTap: () => Navigator.of(context).pop('pick'),
+            ),
+            if (item.reminderAt != null)
+              ListTile(
+                leading: const Icon(Icons.notifications_off_outlined),
+                title: const Text('Remove reminder'),
+                onTap: () => Navigator.of(context).pop('remove'),
+              ),
+          ],
+        ),
+      ),
+    );
+    final now = DateTime.now();
+    final dueAt = switch (action) {
+      'today' => DateTime(now.year, now.month, now.day, 17),
+      'tomorrow' => DateTime(now.year, now.month, now.day + 1, 9),
+      'pick' => await _pickDateTime(now),
+      'remove' => null,
+      _ => null,
+    };
+    if (action == null) return;
+    await widget.controller.setChecklistReminder(widget.note, item, dueAt);
+  }
+
+  Future<DateTime?> _pickDateTime(DateTime now) async {
+    final date = await showDatePicker(
+      context: context,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365)),
+      initialDate: now,
+    );
+    if (date == null || !mounted) return null;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
+    );
+    if (time == null) return null;
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
 }
 
 class _DailyQuoteStrip extends StatelessWidget {
@@ -531,6 +822,28 @@ class _DailyQuoteStrip extends StatelessWidget {
   }
 }
 
+class _TemplateTile extends StatelessWidget {
+  const _TemplateTile({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      trailing: const Icon(Icons.add),
+      onTap: onTap,
+    );
+  }
+}
+
 class _ChecklistRow extends StatefulWidget {
   const _ChecklistRow({
     super.key,
@@ -539,6 +852,8 @@ class _ChecklistRow extends StatefulWidget {
     required this.onToggle,
     required this.onText,
     required this.onEnter,
+    required this.onFocus,
+    required this.onReminder,
     required this.onRemove,
   });
 
@@ -547,6 +862,8 @@ class _ChecklistRow extends StatefulWidget {
   final VoidCallback onToggle;
   final ValueChanged<String> onText;
   final VoidCallback onEnter;
+  final VoidCallback onFocus;
+  final VoidCallback onReminder;
   final VoidCallback onRemove;
 
   @override
@@ -584,28 +901,68 @@ class _ChecklistRowState extends State<_ChecklistRow> {
       padding: const EdgeInsets.only(bottom: 8),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.72),
+          color: widget.item.isFocus
+              ? Theme.of(context).colorScheme.primaryContainer
+              : Colors.white.withValues(alpha: 0.72),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           children: [
             Checkbox(
                 value: widget.item.done, onChanged: (_) => widget.onToggle()),
+            IconButton(
+              tooltip: widget.item.isFocus ? 'Clear focus' : 'Mark as Now',
+              onPressed: widget.onFocus,
+              icon: Icon(
+                widget.item.isFocus ? Icons.flag : Icons.outlined_flag,
+                size: 18,
+              ),
+            ),
             Expanded(
-              child: TextField(
-                controller: _text,
-                focusNode: widget.focusNode,
-                textInputAction: TextInputAction.next,
-                onSubmitted: (_) => widget.onEnter(),
-                onChanged: widget.onText,
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  hintText: 'Task',
-                ),
-                style: TextStyle(
-                  decoration:
-                      widget.item.done ? TextDecoration.lineThrough : null,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: _text,
+                    focusNode: widget.focusNode,
+                    textInputAction: TextInputAction.next,
+                    onSubmitted: (_) => widget.onEnter(),
+                    onChanged: widget.onText,
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      hintText: 'Task',
+                    ),
+                    style: TextStyle(
+                      decoration:
+                          widget.item.done ? TextDecoration.lineThrough : null,
+                      fontWeight: widget.item.isFocus ? FontWeight.w700 : null,
+                    ),
+                  ),
+                  if (widget.item.carriedFrom != null ||
+                      widget.item.reminderAt != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        [
+                          if (widget.item.carriedFrom != null)
+                            'carried from ${DateFormat('d MMM').format(widget.item.carriedFrom!.toLocal())}',
+                          if (widget.item.reminderAt != null)
+                            'reminds ${DateFormat('d MMM, HH:mm').format(widget.item.reminderAt!.toLocal())}',
+                        ].join('  |  '),
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Reminder',
+              onPressed: widget.onReminder,
+              icon: Icon(
+                widget.item.reminderAt == null
+                    ? Icons.notifications_none
+                    : Icons.notifications_active,
+                size: 18,
               ),
             ),
             IconButton(
@@ -709,8 +1066,8 @@ class _StyleAndDisplayControls extends StatelessWidget {
   }
 }
 
-class _HistoryScreen extends StatelessWidget {
-  const _HistoryScreen({required this.controller});
+class _DailyReviewScreen extends StatelessWidget {
+  const _DailyReviewScreen({required this.controller});
 
   final NoterrController controller;
 
@@ -719,73 +1076,237 @@ class _HistoryScreen extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        final notes = controller.historyNotes;
+        final today = controller.todayTodoNote;
+        final done =
+            today?.checklist.where((item) => item.done).toList() ?? const [];
         return Scaffold(
-          appBar: AppBar(title: const Text('Last 30 Days')),
-          body: notes.isEmpty
-              ? const Center(child: Text('Nothing saved in the last 30 days.'))
-              : ListView.separated(
-                  padding: const EdgeInsets.all(14),
-                  itemCount: notes.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, index) {
-                    final note = notes[index];
-                    final date = note.updatedAt.toLocal();
-                    return Material(
-                      color: note.isDeleted
-                          ? Theme.of(context).colorScheme.errorContainer
-                          : noteColor(note.colorHex).withValues(
-                              alpha: note.opacity,
-                            ),
-                      borderRadius: BorderRadius.circular(8),
-                      child: ListTile(
-                        onTap: note.isDeleted
-                            ? null
-                            : () => Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => _ItemDetailScreen(
-                                      controller: controller,
-                                      noteId: note.id,
-                                    ),
-                                  ),
-                                ),
-                        leading: Icon(
-                          note.type == NoteType.full
-                              ? Icons.today_outlined
-                              : note.type == NoteType.checklist
-                                  ? Icons.checklist
-                                  : Icons.sticky_note_2_outlined,
-                        ),
-                        title: Text(
-                          note.title.isEmpty ? 'Untitled' : note.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}  ${note.preview}',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    );
-                  },
+          appBar: AppBar(title: const Text('Daily review')),
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text(
+                'What did I finish today?',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 12),
+              if (done.isEmpty)
+                const Text('No completed tasks yet.')
+              else
+                ...done.map(
+                  (item) => ListTile(
+                    leading: const Icon(Icons.check_circle_outline),
+                    title: Text(item.text),
+                  ),
                 ),
+              const Divider(height: 28),
+              Text(
+                'Today notes',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                today?.body.trim().isEmpty == false
+                    ? today!.body.trim()
+                    : 'No notes written today.',
+              ),
+            ],
+          ),
         );
       },
     );
   }
 }
 
-class _SyncChip extends StatelessWidget {
+class _HistoryScreen extends StatefulWidget {
+  const _HistoryScreen({required this.controller});
+
+  final NoterrController controller;
+
+  @override
+  State<_HistoryScreen> createState() => _HistoryScreenState();
+}
+
+class _HistoryScreenState extends State<_HistoryScreen> {
+  final _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, _) {
+        final query = _search.text.trim();
+        final notes = widget.controller.historyNotes
+            .where((note) => note.matchesQuery(query))
+            .toList();
+        final grouped = <String, Map<String, List<Note>>>{};
+        for (final note in notes) {
+          final date = note.createdAt.toLocal();
+          final month = DateFormat('MMMM yyyy').format(date);
+          final day = DateFormat('d MMM yyyy').format(date);
+          grouped.putIfAbsent(month, () => <String, List<Note>>{});
+          grouped[month]!.putIfAbsent(day, () => <Note>[]);
+          grouped[month]![day]!.add(note);
+        }
+        return Scaffold(
+          appBar: AppBar(title: const Text('Last 365 Days')),
+          body: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+                child: TextField(
+                  controller: _search,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    labelText: 'Search history',
+                  ),
+                ),
+              ),
+              Expanded(
+                child: notes.isEmpty
+                    ? const Center(
+                        child: Text('Nothing found in the last year.'),
+                      )
+                    : ListView(
+                        padding: const EdgeInsets.all(14),
+                        children: [
+                          for (final month in grouped.entries)
+                            ExpansionTile(
+                              initiallyExpanded: true,
+                              title: Text(month.key),
+                              children: [
+                                for (final day in month.value.entries) ...[
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      16,
+                                      10,
+                                      16,
+                                      6,
+                                    ),
+                                    child: Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: Text(
+                                        day.key,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleSmall
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                      ),
+                                    ),
+                                  ),
+                                  for (final note in day.value)
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        8,
+                                        0,
+                                        8,
+                                        8,
+                                      ),
+                                      child: Material(
+                                        color: note.isDeleted
+                                            ? Theme.of(context)
+                                                .colorScheme
+                                                .errorContainer
+                                            : noteColor(note.colorHex)
+                                                .withValues(
+                                                alpha: note.opacity,
+                                              ),
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: ListTile(
+                                          onTap: note.isDeleted
+                                              ? null
+                                              : () =>
+                                                  Navigator.of(context).push(
+                                                    MaterialPageRoute<void>(
+                                                      builder: (_) =>
+                                                          _ItemDetailScreen(
+                                                        controller:
+                                                            widget.controller,
+                                                        noteId: note.id,
+                                                      ),
+                                                    ),
+                                                  ),
+                                          leading: const Icon(
+                                            Icons.article_outlined,
+                                          ),
+                                          title: Text(
+                                            note.title.isEmpty
+                                                ? 'Untitled'
+                                                : note.title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          subtitle: Text(
+                                            note.preview,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ],
+                            ),
+                        ],
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SyncChip extends StatefulWidget {
   const _SyncChip({required this.controller});
 
   final NoterrController controller;
 
   @override
+  State<_SyncChip> createState() => _SyncChipState();
+}
+
+class _SyncChipState extends State<_SyncChip> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) {
+        if (mounted) setState(() {});
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final controller = widget.controller;
     final text = switch (controller.syncState) {
-      SyncState.offline => 'Local',
-      SyncState.idle => 'Synced',
+      SyncState.offline => 'Saved locally',
+      SyncState.idle => _syncedText(controller),
       SyncState.syncing => 'Syncing',
       SyncState.error => 'Sync issue',
     };
@@ -808,7 +1329,25 @@ class _SyncChip extends StatelessWidget {
     );
   }
 
+  String _syncedText(NoterrController controller) {
+    if (!controller.hasCloud) return 'Saved locally';
+    final time = controller.lastSyncAt ??
+        controller.lastPushAt ??
+        controller.lastRemoteEventAt;
+    if (time == null) return 'Sync ready';
+    return 'Synced ${_ago(time)}';
+  }
+
+  String _ago(DateTime value) {
+    final diff = DateTime.now().difference(value.toLocal());
+    if (diff.inSeconds < 10) return 'now';
+    if (diff.inMinutes < 1) return '${diff.inSeconds}s ago';
+    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+    return '${diff.inHours}h ago';
+  }
+
   void _showSyncDetails(BuildContext context) {
+    final controller = widget.controller;
     final account = controller.syncAccountId;
     final error = controller.error;
     showDialog<void>(

@@ -85,7 +85,7 @@ class StartupService {
           '/t',
           'REG_SZ',
           '/d',
-          '"${Platform.resolvedExecutable}"',
+          '"${Platform.resolvedExecutable}" --start-hidden',
           '/f',
         ],
         runInShell: true,

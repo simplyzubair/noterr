@@ -26,13 +26,13 @@ class WidgetPublisher {
         .toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
-    final dailyBoards =
-        visible.where((note) => note.boardName == 'Today').toList();
+    final dailyBoards = visible
+        .where((note) => note.boardName == 'Today' && note.showOnMobileWidget)
+        .toList();
     final dailyBoard = dailyBoards.isEmpty ? null : dailyBoards.first;
 
-    final widgetNotes = visible
-        .where((note) => note.showOnMobileWidget || note.popOnDesktop)
-        .toList();
+    final widgetNotes =
+        visible.where((note) => note.showOnMobileWidget).toList();
     final todoNotes =
         widgetNotes.where((note) => note.supportsChecklist).toList();
     final stickyNotes = widgetNotes.where((note) => note.supportsBody).toList();
@@ -41,11 +41,7 @@ class WidgetPublisher {
     final primarySticky =
         dailyBoard ?? (stickyNotes.isEmpty ? null : stickyNotes.first);
     final primary = dailyBoard ??
-        (widgetNotes.isNotEmpty
-            ? widgetNotes.first
-            : visible.isEmpty
-                ? null
-                : visible.first);
+        (widgetNotes.isNotEmpty ? widgetNotes.first : null);
 
     try {
       await _channel.invokeMethod<void>('publish', {
@@ -57,7 +53,7 @@ class WidgetPublisher {
         'boardName': primary?.boardName ?? 'Personal',
         'type': primary?.type.name ?? NoteType.note.name,
         'popOnDesktop': primary?.popOnDesktop ?? true,
-        'showOnMobileWidget': primary?.showOnMobileWidget ?? true,
+        'showOnMobileWidget': primary?.showOnMobileWidget ?? false,
         'todoTitle': primaryTodo?.title ?? 'Today To Do',
         'todoBody': _todoBody(primaryTodo),
         'todoColorHex': primaryTodo?.colorHex ?? 'E7F6EF',
@@ -114,7 +110,10 @@ class WidgetPublisher {
     if (note == null) return 'No tasks yet';
     final pending = note.checklist.where((item) => !item.done).toList();
     if (pending.isEmpty) return 'All done for today';
-    return pending.map((item) => '- ${item.text}').join('\n');
+    final focus = pending.where((item) => item.isFocus).toList();
+    final regular = pending.where((item) => !item.isFocus).toList();
+    final ordered = [...focus, ...regular];
+    return ordered.map(_taskLine).join('\n');
   }
 
   String? _dailyBody(Note? note) {
@@ -125,7 +124,7 @@ class WidgetPublisher {
     if (note.supportsChecklist) {
       final taskLines = note.checklist
           .where((item) => item.text.trim().isNotEmpty)
-          .map((item) => item.done ? '[x] ${item.text}' : '- ${item.text}')
+          .map((item) => item.done ? '[x] ${item.text}' : _taskLine(item))
           .toList();
       if (taskLines.isNotEmpty) {
         parts.add(taskLines.join('\n'));
@@ -133,6 +132,12 @@ class WidgetPublisher {
     }
     if (parts.isEmpty) return 'No notes or tasks yet';
     return parts.join('\n\n');
+  }
+
+  String _taskLine(ChecklistItem item) {
+    final prefix = item.isFocus ? 'NOW: ' : '- ';
+    final suffix = item.carriedFrom == null ? '' : ' (carried)';
+    return '$prefix${item.text}$suffix';
   }
 
   String _stickyBody(List<Note> notes) {

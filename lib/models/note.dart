@@ -42,28 +42,63 @@ class ChecklistItem {
     String? id,
     required this.text,
     this.done = false,
+    this.isFocus = false,
+    this.carriedFrom,
+    this.reminderAt,
+    this.reminderDone = false,
   }) : id = id ?? _uuid.v4();
 
   factory ChecklistItem.fromJson(Map<String, dynamic> json) => ChecklistItem(
         id: json['id'] as String?,
         text: json['text'] as String? ?? '',
         done: json['done'] as bool? ?? false,
+        isFocus: json['isFocus'] as bool? ?? false,
+        carriedFrom: json['carriedFrom'] == null
+            ? null
+            : DateTime.tryParse(json['carriedFrom'] as String)?.toUtc(),
+        reminderAt: json['reminderAt'] == null
+            ? null
+            : DateTime.tryParse(json['reminderAt'] as String)?.toUtc(),
+        reminderDone: json['reminderDone'] as bool? ?? false,
       );
 
   final String id;
   final String text;
   final bool done;
+  final bool isFocus;
+  final DateTime? carriedFrom;
+  final DateTime? reminderAt;
+  final bool reminderDone;
 
-  ChecklistItem copyWith({String? text, bool? done}) => ChecklistItem(
+  ChecklistItem copyWith({
+    String? text,
+    bool? done,
+    bool? isFocus,
+    DateTime? carriedFrom,
+    bool clearCarriedFrom = false,
+    DateTime? reminderAt,
+    bool clearReminder = false,
+    bool? reminderDone,
+  }) =>
+      ChecklistItem(
         id: id,
         text: text ?? this.text,
         done: done ?? this.done,
+        isFocus: isFocus ?? this.isFocus,
+        carriedFrom:
+            clearCarriedFrom ? null : carriedFrom ?? this.carriedFrom,
+        reminderAt: clearReminder ? null : reminderAt ?? this.reminderAt,
+        reminderDone: reminderDone ?? this.reminderDone,
       );
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'text': text,
         'done': done,
+        'isFocus': isFocus,
+        'carriedFrom': carriedFrom?.toIso8601String(),
+        'reminderAt': reminderAt?.toIso8601String(),
+        'reminderDone': reminderDone,
       };
 }
 

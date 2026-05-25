@@ -94,6 +94,9 @@ class _StickyNoteWindowState extends State<StickyNoteWindow>
         case 'sticky-note-lock':
           await windowManager.close();
           return true;
+        case 'sticky-note-hide':
+          await windowManager.hide();
+          return true;
       }
       return null;
     });

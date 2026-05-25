@@ -110,10 +110,21 @@ class NoterrWidgetSyncService : Service() {
             if (note.optBoolean("isDeleted", false)) continue
             if (note.optBoolean("isArchived", false)) continue
             if (note.optString("boardName") != "Today") continue
+            if (!note.optBoolean("showOnMobileWidget", true)) continue
             selected = note
             break
         }
-        if (selected == null) return
+        if (selected == null) {
+            getSharedPreferences("noterr_widget", Context.MODE_PRIVATE)
+                .edit()
+                .putString("title", "Noterr")
+                .putString("body", "${dailyQuote()}\n\nNo active notes")
+                .putString("colorHex", "F2F2F2")
+                .putFloat("opacity", 1f)
+                .apply()
+            updateHomeWidgets()
+            return
+        }
 
         getSharedPreferences("noterr_widget", Context.MODE_PRIVATE)
             .edit()
@@ -123,6 +134,10 @@ class NoterrWidgetSyncService : Service() {
             .putFloat("opacity", selected.optDouble("opacity", 1.0).toFloat())
             .apply()
 
+        updateHomeWidgets()
+    }
+
+    private fun updateHomeWidgets() {
         val manager = AppWidgetManager.getInstance(this)
         NoterrWidgetProvider.updateWidgets(
             this,
@@ -151,7 +166,16 @@ class NoterrWidgetSyncService : Service() {
             val item = checklist.getJSONObject(index)
             val text = item.optString("text").trim()
             if (text.isEmpty()) continue
-            taskLines.add(if (item.optBoolean("done", false)) "[x] $text" else "- $text")
+            val carried = if (item.has("carriedFrom") && !item.isNull("carriedFrom")) " (carried)" else ""
+            taskLines.add(
+                if (item.optBoolean("done", false)) {
+                    "[x] $text$carried"
+                } else if (item.optBoolean("isFocus", false)) {
+                    "NOW: $text$carried"
+                } else {
+                    "- $text$carried"
+                }
+            )
         }
         if (taskLines.isNotEmpty()) parts.add(taskLines.joinToString("\n"))
         val content = if (parts.isEmpty()) "No notes or tasks yet" else parts.joinToString("\n\n")

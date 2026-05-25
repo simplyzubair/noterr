@@ -97,6 +97,18 @@ class StickyWindowService {
     }
   }
 
+  Future<void> hideAll() async {
+    for (final window in _noteWindows.values) {
+      await _invokeSafely(window, 'sticky-note-hide');
+    }
+  }
+
+  Future<void> showDailySticky() async {
+    final note = _controller?.todayTodoNote;
+    if (note == null) return;
+    await show(note);
+  }
+
   void _syncOpenWindowsFromController() {
     final controller = _controller;
     if (controller == null || !isSupported) return;

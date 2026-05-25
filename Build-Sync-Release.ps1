@@ -38,7 +38,7 @@ try {
   $shortcut.IconLocation = (Join-Path $InstallDir "noterr.exe") + ",0"
   $shortcut.Save()
 
-  reg add HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v Noterr /t REG_SZ /d "`"$(Join-Path $InstallDir "noterr.exe")`"" /f | Out-Null
+  reg add HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v Noterr /t REG_SZ /d "`"$(Join-Path $InstallDir "noterr.exe")`" --start-hidden" /f | Out-Null
 
   Write-Host "Sync-enabled Windows app:" (Join-Path $InstallDir "noterr.exe")
   Write-Host "Sync-enabled APK:" "$Project\build\app\outputs\flutter-apk\app-release.apk"
