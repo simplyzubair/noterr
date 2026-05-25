@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
@@ -12,6 +13,41 @@ import '../services/vault_crypto.dart';
 import '../services/widget_publisher.dart';
 
 enum SyncState { offline, idle, syncing, error }
+
+const _templateBoardName = 'System';
+const _templateNoteTitle = '__noterr_templates_v1';
+const Map<String, List<String>> _defaultTemplates = {
+  'work': [
+    'Choose today\'s one priority',
+    'Clear urgent messages',
+    'Deep work block',
+    'Follow up before closing work',
+  ],
+  'calls': [
+    'List people to call',
+    'Make the important call first',
+    'Send recap or next step',
+  ],
+  'shopping': [
+    'Check pantry/fridge',
+    'List essentials',
+    'Buy only what is needed',
+  ],
+  'prayer': [
+    'Fajr',
+    'Dhuhr',
+    'Asr',
+    'Maghrib',
+    'Isha',
+    'Quran / reflection',
+  ],
+  'project': [
+    'Define next milestone',
+    'Pick one blocker',
+    'Ship one small improvement',
+    'Write next action',
+  ],
+};
 
 class DueChecklistReminder {
   const DueChecklistReminder({
@@ -69,6 +105,40 @@ class NoterrController extends ChangeNotifier {
   int get lastPushedCount => _lastPushedCount;
 
   List<Note> get notes => List.unmodifiable(_notes);
+
+  Map<String, List<String>> get templates {
+    final saved = _templateNote;
+    if (saved == null || saved.body.trim().isEmpty) {
+      return Map.unmodifiable(_defaultTemplates);
+    }
+    try {
+      final raw = jsonDecode(saved.body) as Map<String, dynamic>;
+      final parsed = raw.map((key, value) {
+        final items = ((value as List?) ?? const [])
+            .whereType<String>()
+            .map((item) => item.trim())
+            .where((item) => item.isNotEmpty)
+            .toList();
+        return MapEntry(key, items);
+      })
+        ..removeWhere((_, items) => items.isEmpty);
+      if (parsed.isEmpty) return Map.unmodifiable(_defaultTemplates);
+      return Map.unmodifiable(parsed);
+    } catch (_) {
+      return Map.unmodifiable(_defaultTemplates);
+    }
+  }
+
+  Note? get _templateNote {
+    for (final note in _notes) {
+      if (!note.isDeleted &&
+          note.boardName == _templateBoardName &&
+          note.title == _templateNoteTitle) {
+        return note;
+      }
+    }
+    return null;
+  }
 
   List<Note> visibleNotes({
     String query = '',
@@ -396,42 +466,54 @@ class NoterrController extends ChangeNotifier {
   }
 
   Future<void> applyTemplate(String name) async {
-    final tasks = switch (name) {
-      'work' => [
-          'Choose today\'s one priority',
-          'Clear urgent messages',
-          'Deep work block',
-          'Follow up before closing work',
-        ],
-      'calls' => [
-          'List people to call',
-          'Make the important call first',
-          'Send recap or next step',
-        ],
-      'shopping' => [
-          'Check pantry/fridge',
-          'List essentials',
-          'Buy only what is needed',
-        ],
-      'prayer' => [
-          'Fajr',
-          'Dhuhr',
-          'Asr',
-          'Maghrib',
-          'Isha',
-          'Quran / reflection',
-        ],
-      'project' => [
-          'Define next milestone',
-          'Pick one blocker',
-          'Ship one small improvement',
-          'Write next action',
-        ],
-      _ => <String>[],
-    };
+    final tasks = templates[name] ?? const <String>[];
     for (final task in tasks) {
       await addTodayTask(task);
     }
+  }
+
+  Future<void> saveTemplate(String name, List<String> tasks) async {
+    final key = name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
+    final cleaned = tasks
+        .map((task) => task.trim())
+        .where((task) => task.isNotEmpty)
+        .toList();
+    if (key.isEmpty || cleaned.isEmpty) return;
+    final nextTemplates = Map<String, List<String>>.from(templates)
+      ..[key] = cleaned;
+    await _saveTemplates(nextTemplates);
+  }
+
+  Future<void> deleteTemplate(String name) async {
+    final nextTemplates = Map<String, List<String>>.from(templates)
+      ..remove(name);
+    if (nextTemplates.isEmpty) {
+      nextTemplates.addAll(_defaultTemplates);
+    }
+    await _saveTemplates(nextTemplates);
+  }
+
+  Future<void> resetTemplates() {
+    return _saveTemplates(Map<String, List<String>>.from(_defaultTemplates));
+  }
+
+  Future<void> _saveTemplates(Map<String, List<String>> value) async {
+    final encoded = const JsonEncoder.withIndent('  ').convert(value);
+    final existing = _templateNote;
+    if (existing == null) {
+      final note = Note.blank(_deviceId, type: NoteType.note).copyWith(
+        title: _templateNoteTitle,
+        body: encoded,
+        boardName: _templateBoardName,
+        isArchived: true,
+        popOnDesktop: false,
+        showOnMobileWidget: false,
+      );
+      _notes.add(note);
+      await _persistAndPush(note);
+      return;
+    }
+    await updateNote(existing.copyWith(body: encoded));
   }
 
   List<Note> dueReminderNotes(DateTime now) {
@@ -797,9 +879,11 @@ class NoterrController extends ChangeNotifier {
     final carryTasks = <ChecklistItem>[];
     for (final board in staleBoards) {
       carryTasks.addAll(
-        board.checklist.where(
-          (item) => !item.done && item.text.trim().isNotEmpty,
-        ).map((item) => item.copyWith(carriedFrom: board.createdAt)),
+        board.checklist
+            .where(
+              (item) => !item.done && item.text.trim().isNotEmpty,
+            )
+            .map((item) => item.copyWith(carriedFrom: board.createdAt)),
       );
       await _persistAndPush(
         _touch(

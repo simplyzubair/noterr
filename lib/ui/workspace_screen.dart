@@ -248,6 +248,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                         ),
                   ),
                   const SizedBox(height: 12),
+                  _SyncStatusTile(controller: widget.controller),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     secondary: const Icon(Icons.power_settings_new),
@@ -296,53 +297,156 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
-          children: [
-            Text(
-              'Templates',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleLarge
-                  ?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 8),
-            _TemplateTile(
-              icon: Icons.work_outline,
-              title: 'Work day',
-              onTap: () => _applyTemplateAndClose('work'),
-            ),
-            _TemplateTile(
-              icon: Icons.call_outlined,
-              title: 'Calls',
-              onTap: () => _applyTemplateAndClose('calls'),
-            ),
-            _TemplateTile(
-              icon: Icons.shopping_basket_outlined,
-              title: 'Shopping',
-              onTap: () => _applyTemplateAndClose('shopping'),
-            ),
-            _TemplateTile(
-              icon: Icons.self_improvement,
-              title: 'Prayer / habits',
-              onTap: () => _applyTemplateAndClose('prayer'),
-            ),
-            _TemplateTile(
-              icon: Icons.account_tree_outlined,
-              title: 'Project tasks',
-              onTap: () => _applyTemplateAndClose('project'),
-            ),
-          ],
-        ),
-      ),
+      builder: (context) {
+        return AnimatedBuilder(
+          animation: widget.controller,
+          builder: (context, _) {
+            final templates = widget.controller.templates;
+            return SafeArea(
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Templates',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Add template',
+                        onPressed: () => _editTemplate(),
+                        icon: const Icon(Icons.add),
+                      ),
+                      IconButton(
+                        tooltip: 'Reset templates',
+                        onPressed: () =>
+                            unawaited(widget.controller.resetTemplates()),
+                        icon: const Icon(Icons.restart_alt),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  for (final entry in templates.entries)
+                    _TemplateTile(
+                      icon: _templateIcon(entry.key),
+                      title: _templateTitle(entry.key),
+                      count: entry.value.length,
+                      onTap: () => _applyTemplateAndClose(entry.key),
+                      onEdit: () => _editTemplate(
+                        name: entry.key,
+                        tasks: entry.value,
+                      ),
+                      onDelete: templates.length <= 1
+                          ? null
+                          : () => unawaited(
+                              widget.controller.deleteTemplate(entry.key)),
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
   void _applyTemplateAndClose(String name) {
     Navigator.of(context).pop();
     unawaited(widget.controller.applyTemplate(name));
+  }
+
+  IconData _templateIcon(String key) {
+    return switch (key) {
+      'work' => Icons.work_outline,
+      'calls' => Icons.call_outlined,
+      'shopping' => Icons.shopping_basket_outlined,
+      'prayer' => Icons.self_improvement,
+      'project' => Icons.account_tree_outlined,
+      _ => Icons.checklist,
+    };
+  }
+
+  String _templateTitle(String key) {
+    return key
+        .split('_')
+        .where((part) => part.isNotEmpty)
+        .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+        .join(' ');
+  }
+
+  Future<void> _editTemplate({
+    String? name,
+    List<String> tasks = const [],
+  }) async {
+    final nameController = TextEditingController(text: name ?? '');
+    final tasksController = TextEditingController(text: tasks.join('\n'));
+    final result = await showDialog<({String name, List<String> tasks})>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(name == null ? 'Add template' : 'Edit template'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Template name'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: tasksController,
+                minLines: 6,
+                maxLines: 10,
+                decoration: const InputDecoration(
+                  labelText: 'Tasks',
+                  hintText: 'One task per line',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final templateName = nameController.text.trim();
+              final templateTasks = tasksController.text
+                  .split('\n')
+                  .map((line) => line.trim())
+                  .where((line) => line.isNotEmpty)
+                  .toList();
+              if (templateName.isEmpty || templateTasks.isEmpty) return;
+              Navigator.of(context).pop((
+                name: templateName,
+                tasks: templateTasks,
+              ));
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    nameController.dispose();
+    tasksController.dispose();
+    if (result == null) return;
+    await widget.controller.saveTemplate(result.name, result.tasks);
+    final newKey = result.name.trim().toLowerCase().replaceAll(
+          RegExp(r'\s+'),
+          '_',
+        );
+    if (name != null && name != newKey) {
+      await widget.controller.deleteTemplate(name);
+    }
   }
 
   void _checkTaskReminders() {
@@ -420,12 +524,6 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
           appBar: AppBar(
             title: const Text('Noterr'),
             actions: [
-              _SyncChip(controller: widget.controller),
-              IconButton(
-                tooltip: 'Sync now',
-                onPressed: widget.controller.syncNow,
-                icon: const Icon(Icons.sync),
-              ),
               IconButton(
                 tooltip: 'History',
                 onPressed: _openHistory,
@@ -842,19 +940,45 @@ class _TemplateTile extends StatelessWidget {
   const _TemplateTile({
     required this.icon,
     required this.title,
+    required this.count,
     required this.onTap,
+    required this.onEdit,
+    required this.onDelete,
   });
 
   final IconData icon;
   final String title;
+  final int count;
   final VoidCallback onTap;
+  final VoidCallback onEdit;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
       leading: Icon(icon),
       title: Text(title),
-      trailing: const Icon(Icons.add),
+      subtitle: Text('$count tasks'),
+      trailing: Wrap(
+        spacing: 2,
+        children: [
+          IconButton(
+            tooltip: 'Edit template',
+            onPressed: onEdit,
+            icon: const Icon(Icons.edit_outlined),
+          ),
+          IconButton(
+            tooltip: 'Delete template',
+            onPressed: onDelete,
+            icon: const Icon(Icons.delete_outline),
+          ),
+          IconButton(
+            tooltip: 'Use template',
+            onPressed: onTap,
+            icon: const Icon(Icons.add),
+          ),
+        ],
+      ),
       onTap: onTap,
     );
   }
@@ -1352,133 +1476,103 @@ class _HistoryScreenState extends State<_HistoryScreen> {
   }
 }
 
-class _SyncChip extends StatefulWidget {
-  const _SyncChip({required this.controller});
+class _SyncStatusTile extends StatelessWidget {
+  const _SyncStatusTile({required this.controller});
 
   final NoterrController controller;
 
   @override
-  State<_SyncChip> createState() => _SyncChipState();
-}
-
-class _SyncChipState extends State<_SyncChip> {
-  Timer? _timer;
-
-  @override
-  void initState() {
-    super.initState();
-    _timer = Timer.periodic(
-      const Duration(seconds: 10),
-      (_) {
-        if (mounted) setState(() {});
-      },
-    );
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final controller = widget.controller;
-    final text = switch (controller.syncState) {
-      SyncState.offline => 'Saved locally',
-      SyncState.idle => _syncedText(controller),
-      SyncState.syncing => 'Syncing',
-      SyncState.error => 'Sync issue',
-    };
+    final text = _syncText(controller);
     final icon = switch (controller.syncState) {
       SyncState.offline => Icons.cloud_off,
       SyncState.idle => Icons.cloud_done,
       SyncState.syncing => Icons.cloud_sync,
       SyncState.error => Icons.error_outline,
     };
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Tooltip(
-        message: controller.error ?? text,
-        child: ActionChip(
-          avatar: Icon(icon, size: 18),
-          label: Text(text),
-          onPressed: () => _showSyncDetails(context),
-        ),
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon),
+      title: const Text('Sync status'),
+      subtitle: Text(controller.error ?? text),
+      trailing: IconButton(
+        tooltip: 'Sync now',
+        onPressed: controller.syncNow,
+        icon: const Icon(Icons.sync),
       ),
+      onTap: () => _showSyncDetails(context, controller),
     );
   }
+}
 
-  String _syncedText(NoterrController controller) {
-    if (!controller.hasCloud) return 'Saved locally';
-    final time = controller.lastSyncAt ??
-        controller.lastPushAt ??
-        controller.lastRemoteEventAt;
-    if (time == null) return 'Sync ready';
-    return 'Synced ${_ago(time)}';
-  }
+String _syncText(NoterrController controller) {
+  if (!controller.hasCloud) return 'Saved locally';
+  final time = controller.lastSyncAt ??
+      controller.lastPushAt ??
+      controller.lastRemoteEventAt;
+  if (time == null) return 'Sync ready';
+  return 'Synced ${_ago(time)}';
+}
 
-  String _ago(DateTime value) {
-    final diff = DateTime.now().difference(value.toLocal());
-    if (diff.inSeconds < 10) return 'now';
-    if (diff.inMinutes < 1) return '${diff.inSeconds}s ago';
-    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
-    return '${diff.inHours}h ago';
-  }
+String _ago(DateTime value) {
+  final diff = DateTime.now().difference(value.toLocal());
+  if (diff.inSeconds < 10) return 'now';
+  if (diff.inMinutes < 1) return '${diff.inSeconds}s ago';
+  if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+  return '${diff.inHours}h ago';
+}
 
-  void _showSyncDetails(BuildContext context) {
-    final controller = widget.controller;
-    final account = controller.syncAccountId;
-    final error = controller.error;
-    showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Sync status'),
-          content: SelectableText(
-            [
-              'Mode: ${controller.hasCloud ? 'Cloud' : 'Local only'}',
-              'State: ${controller.syncState.name}',
-              'Account: ${account == null ? 'not signed in' : _short(account)}',
-              'Device: ${_short(controller.deviceId)}',
-              'Items here: ${controller.notes.length}',
-              'Last pull count: ${controller.lastPulledCount}',
-              'Last push count: ${controller.lastPushedCount}',
-              'Last sync: ${_time(controller.lastSyncAt)}',
-              'Last push: ${_time(controller.lastPushAt)}',
-              'Last live event: ${_time(controller.lastRemoteEventAt)}',
-              if (error != null) 'Error: $error',
-            ].join('\n'),
+void _showSyncDetails(BuildContext context, NoterrController controller) {
+  final account = controller.syncAccountId;
+  final error = controller.error;
+  showDialog<void>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: const Text('Sync status'),
+        content: SelectableText(
+          [
+            'Mode: ${controller.hasCloud ? 'Cloud' : 'Local only'}',
+            'State: ${controller.syncState.name}',
+            'Account: ${account == null ? 'not signed in' : _shortValue(account)}',
+            'Device: ${_shortValue(controller.deviceId)}',
+            'Items here: ${controller.notes.length}',
+            'Last pull count: ${controller.lastPulledCount}',
+            'Last push count: ${controller.lastPushedCount}',
+            'Last sync: ${_timeValue(controller.lastSyncAt)}',
+            'Last push: ${_timeValue(controller.lastPushAt)}',
+            'Last live event: ${_timeValue(controller.lastRemoteEventAt)}',
+            if (error != null) 'Error: $error',
+          ].join('\n'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close'),
-            ),
-            FilledButton.icon(
-              onPressed: () {
-                Navigator.of(context).pop();
-                controller.syncNow();
-              },
-              icon: const Icon(Icons.sync),
-              label: const Text('Sync now'),
-            ),
-          ],
-        );
-      },
-    );
-  }
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              controller.syncNow();
+            },
+            icon: const Icon(Icons.sync),
+            label: const Text('Sync now'),
+          ),
+        ],
+      );
+    },
+  );
+}
 
-  String _short(String value) {
-    if (value.length <= 8) return value;
-    return '${value.substring(0, 8)}...';
-  }
+String _shortValue(String value) {
+  if (value.length <= 8) return value;
+  return '${value.substring(0, 8)}...';
+}
 
-  String _time(DateTime? value) {
-    if (value == null) return 'never';
-    final local = value.toLocal();
-    return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}';
-  }
+String _timeValue(DateTime? value) {
+  if (value == null) return 'never';
+  final local = value.toLocal();
+  return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}';
 }
 
 extension _FirstOrNull<T> on Iterable<T> {
