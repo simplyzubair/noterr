@@ -4,8 +4,10 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:tray_manager/tray_manager.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../app/app_config.dart';
 import '../controllers/noterr_controller.dart';
 import '../models/note.dart';
 import '../services/daily_quote.dart';
@@ -78,7 +80,8 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
             MenuItem(key: 'template_work', label: 'Template: Work day'),
             MenuItem(key: 'template_calls', label: 'Template: Calls'),
             MenuItem(key: 'template_shopping', label: 'Template: Shopping'),
-            MenuItem(key: 'template_prayer', label: 'Template: Prayer / habits'),
+            MenuItem(
+                key: 'template_prayer', label: 'Template: Prayer / habits'),
             MenuItem(key: 'template_project', label: 'Template: Project tasks'),
             MenuItem.separator(),
             MenuItem(key: 'toggle_privacy', label: 'Hide/show sticky'),
@@ -166,13 +169,13 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
           autofocus: true,
           minLines: isTask ? 1 : 3,
           maxLines: isTask ? 1 : 6,
-          textInputAction: isTask ? TextInputAction.done : TextInputAction.newline,
+          textInputAction:
+              isTask ? TextInputAction.done : TextInputAction.newline,
           decoration: InputDecoration(
             hintText: isTask ? 'Task' : 'Note',
           ),
-          onSubmitted: isTask
-              ? (_) => Navigator.of(context).pop(controller.text)
-              : null,
+          onSubmitted:
+              isTask ? (_) => Navigator.of(context).pop(controller.text) : null,
         ),
         actions: [
           TextButton(
@@ -221,6 +224,11 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     await _startupService.setEnabled(value);
   }
 
+  Future<void> _openAndroidUpdate() async {
+    final uri = Uri.parse(AppConfig.androidUpdateUrl);
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
   void _openSettings() {
     showModalBottomSheet<void>(
       context: context,
@@ -244,12 +252,20 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                     contentPadding: EdgeInsets.zero,
                     secondary: const Icon(Icons.power_settings_new),
                     title: const Text('Start Noterr with Windows'),
-                    subtitle: const Text('Show the daily sticky after sign in.'),
+                    subtitle:
+                        const Text('Show the daily sticky after sign in.'),
                     value: _startOnLogin,
                     onChanged: (value) {
                       setSheetState(() => _startOnLogin = value);
                       unawaited(_setStartOnLogin(value));
                     },
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.system_update_alt),
+                    title: const Text('Check Android update'),
+                    subtitle: const Text('Opens the private APK release page.'),
+                    onTap: _openAndroidUpdate,
                   ),
                 ],
               ),
@@ -906,73 +922,137 @@ class _ChecklistRowState extends State<_ChecklistRow> {
               : Colors.white.withValues(alpha: 0.72),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Row(
-          children: [
-            Checkbox(
-                value: widget.item.done, onChanged: (_) => widget.onToggle()),
-            IconButton(
-              tooltip: widget.item.isFocus ? 'Clear focus' : 'Mark as Now',
-              onPressed: widget.onFocus,
-              icon: Icon(
-                widget.item.isFocus ? Icons.flag : Icons.outlined_flag,
-                size: 18,
-              ),
-            ),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  TextField(
-                    controller: _text,
-                    focusNode: widget.focusNode,
-                    textInputAction: TextInputAction.next,
-                    onSubmitted: (_) => widget.onEnter(),
-                    onChanged: widget.onText,
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      hintText: 'Task',
-                    ),
-                    style: TextStyle(
-                      decoration:
-                          widget.item.done ? TextDecoration.lineThrough : null,
-                      fontWeight: widget.item.isFocus ? FontWeight.w700 : null,
+                  SizedBox(
+                    width: 36,
+                    child: Checkbox(
+                      value: widget.item.done,
+                      visualDensity: VisualDensity.compact,
+                      onChanged: (_) => widget.onToggle(),
                     ),
                   ),
-                  if (widget.item.carriedFrom != null ||
-                      widget.item.reminderAt != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        [
-                          if (widget.item.carriedFrom != null)
-                            'carried from ${DateFormat('d MMM').format(widget.item.carriedFrom!.toLocal())}',
-                          if (widget.item.reminderAt != null)
-                            'reminds ${DateFormat('d MMM, HH:mm').format(widget.item.reminderAt!.toLocal())}',
-                        ].join('  |  '),
-                        style: Theme.of(context).textTheme.labelSmall,
+                  Expanded(
+                    child: TextField(
+                      controller: _text,
+                      focusNode: widget.focusNode,
+                      textInputAction: TextInputAction.next,
+                      onSubmitted: (_) => widget.onEnter(),
+                      onChanged: widget.onText,
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        hintText: 'Task',
+                      ),
+                      style: TextStyle(
+                        decoration: widget.item.done
+                            ? TextDecoration.lineThrough
+                            : null,
+                        fontWeight:
+                            widget.item.isFocus ? FontWeight.w700 : null,
                       ),
                     ),
+                  ),
+                  IconButton(
+                    tooltip: 'Delete task',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: widget.onRemove,
+                    icon: const Icon(Icons.close, size: 18),
+                  ),
                 ],
               ),
-            ),
-            IconButton(
-              tooltip: 'Reminder',
-              onPressed: widget.onReminder,
-              icon: Icon(
-                widget.item.reminderAt == null
-                    ? Icons.notifications_none
-                    : Icons.notifications_active,
-                size: 18,
+              Padding(
+                padding: const EdgeInsets.only(left: 38, right: 4, top: 2),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _TinyTaskAction(
+                      icon: widget.item.isFocus
+                          ? Icons.flag
+                          : Icons.outlined_flag,
+                      label: 'Now',
+                      selected: widget.item.isFocus,
+                      onPressed: widget.onFocus,
+                    ),
+                    _TinyTaskAction(
+                      icon: widget.item.reminderAt == null
+                          ? Icons.notifications_none
+                          : Icons.notifications_active,
+                      label: 'Remind',
+                      selected: widget.item.reminderAt != null,
+                      onPressed: widget.onReminder,
+                    ),
+                    if (widget.item.carriedFrom != null)
+                      _TaskMetaText(
+                        'carried ${DateFormat('d MMM').format(widget.item.carriedFrom!.toLocal())}',
+                      ),
+                    if (widget.item.reminderAt != null)
+                      _TaskMetaText(
+                        DateFormat('d MMM, HH:mm')
+                            .format(widget.item.reminderAt!.toLocal()),
+                      ),
+                  ],
+                ),
               ),
-            ),
-            IconButton(
-              tooltip: 'Delete task',
-              onPressed: widget.onRemove,
-              icon: const Icon(Icons.close),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+class _TinyTaskAction extends StatelessWidget {
+  const _TinyTaskAction({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton.icon(
+      style: TextButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        minimumSize: Size.zero,
+        foregroundColor: selected
+            ? Theme.of(context).colorScheme.primary
+            : Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+      onPressed: onPressed,
+      icon: Icon(icon, size: 14),
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+    );
+  }
+}
+
+class _TaskMetaText extends StatelessWidget {
+  const _TaskMetaText(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
     );
   }
 }
