@@ -34,6 +34,7 @@ try {
   $shell = New-Object -ComObject WScript.Shell
   $shortcut = $shell.CreateShortcut("$env:USERPROFILE\Desktop\Noterr.lnk")
   $shortcut.TargetPath = Join-Path $InstallDir "noterr.exe"
+  $shortcut.Arguments = "--start-hidden"
   $shortcut.WorkingDirectory = $InstallDir
   $shortcut.IconLocation = (Join-Path $InstallDir "noterr.exe") + ",0"
   $shortcut.Save()

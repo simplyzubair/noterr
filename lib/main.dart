@@ -35,8 +35,10 @@ Future<void> main(List<String> args) async {
         backgroundColor: Colors.transparent,
         titleBarStyle: TitleBarStyle.hidden,
         windowButtonVisibility: false,
+        skipTaskbar: true,
       );
       await windowManager.waitUntilReadyToShow(options, () async {
+        await windowManager.setSkipTaskbar(true);
         await windowManager.setPosition(Offset(bounds.x, bounds.y));
         await windowManager.setOpacity(note.opacity);
         await windowManager.show();
@@ -57,6 +59,24 @@ Future<void> main(List<String> args) async {
       );
       if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
         await windowManager.ensureInitialized();
+        final bounds = note.bounds ?? StickyBounds.defaults();
+        final options = WindowOptions(
+          size: Size(bounds.width, bounds.height),
+          minimumSize: const Size(220, 160),
+          title: note.title.isEmpty ? 'Noterr sticky' : note.title,
+          alwaysOnTop: note.isAlwaysOnTop,
+          backgroundColor: Colors.transparent,
+          titleBarStyle: TitleBarStyle.hidden,
+          windowButtonVisibility: false,
+          skipTaskbar: true,
+        );
+        await windowManager.waitUntilReadyToShow(options, () async {
+          await windowManager.setSkipTaskbar(true);
+          await windowManager.setPosition(Offset(bounds.x, bounds.y));
+          await windowManager.setOpacity(note.opacity);
+          await windowManager.show();
+          await windowManager.focus();
+        });
       }
       runApp(
         StickyNoteWindowApp(

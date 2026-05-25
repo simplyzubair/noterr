@@ -24,12 +24,22 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   bool is_multi_window =
       !command_line_arguments.empty() && command_line_arguments[0] == "multi_window";
   HANDLE single_instance_mutex = nullptr;
+  HANDLE sticky_instance_mutex = nullptr;
   if (!is_multi_window) {
     single_instance_mutex =
         ::CreateMutexW(nullptr, TRUE, L"NoterrSingleInstanceMutex");
     if (single_instance_mutex != nullptr &&
         ::GetLastError() == ERROR_ALREADY_EXISTS) {
       ::CloseHandle(single_instance_mutex);
+      ::CoUninitialize();
+      return EXIT_SUCCESS;
+    }
+  } else {
+    sticky_instance_mutex =
+        ::CreateMutexW(nullptr, TRUE, L"NoterrStickySingleInstanceMutex");
+    if (sticky_instance_mutex != nullptr &&
+        ::GetLastError() == ERROR_ALREADY_EXISTS) {
+      ::CloseHandle(sticky_instance_mutex);
       ::CoUninitialize();
       return EXIT_SUCCESS;
     }
@@ -54,6 +64,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   ::CoUninitialize();
   if (single_instance_mutex != nullptr) {
     ::CloseHandle(single_instance_mutex);
+  }
+  if (sticky_instance_mutex != nullptr) {
+    ::CloseHandle(sticky_instance_mutex);
   }
   return EXIT_SUCCESS;
 }
