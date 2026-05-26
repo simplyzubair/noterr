@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -23,11 +24,15 @@ class MainActivity : FlutterActivity() {
                     .putString("supabase_anon_key", call.argument<String>("supabaseAnonKey") ?: "")
                     .putString("passphrase", call.argument<String>("passphrase") ?: "")
                     .apply()
-                val intent = Intent(this, NoterrWidgetSyncService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(intent)
-                } else {
-                    startService(intent)
+                try {
+                    val intent = Intent(this, NoterrWidgetSyncService::class.java)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(intent)
+                    } else {
+                        startService(intent)
+                    }
+                } catch (error: Throwable) {
+                    Log.w("Noterr", "Live widget sync service could not start", error)
                 }
                 result.success(null)
                 return@setMethodCallHandler

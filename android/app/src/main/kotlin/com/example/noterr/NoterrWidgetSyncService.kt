@@ -12,6 +12,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.util.Base64
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -31,14 +32,22 @@ import javax.crypto.spec.SecretKeySpec
 
 class NoterrWidgetSyncService : Service() {
     private var executor: ScheduledExecutorService? = null
+    private var canRunForeground = false
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, notification())
+        try {
+            createNotificationChannel()
+            startForeground(NOTIFICATION_ID, notification())
+            canRunForeground = true
+        } catch (error: Throwable) {
+            Log.w("Noterr", "Live widget sync disabled because foreground service failed", error)
+            stopSelf()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!canRunForeground) return START_NOT_STICKY
         if (executor?.isShutdown != false) {
             executor = Executors.newSingleThreadScheduledExecutor()
             executor?.scheduleWithFixedDelay(
@@ -332,7 +341,7 @@ class NoterrWidgetSyncService : Service() {
         return builder
             .setContentTitle("Noterr live widget sync")
             .setContentText("Keeping your Daily Board widget updated")
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(R.drawable.ic_stat_noterr)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
