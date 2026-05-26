@@ -19,6 +19,8 @@ class StickyWindowService {
 
   final Map<String, WindowController> _noteWindows = {};
   final Map<String, int> _dismissedRemoteRevision = {};
+  final Set<String> _openingNoteIds = {};
+  Future<void>? _showChain;
   NoterrController? _boundController;
   NoterrController? _controller;
 
@@ -59,8 +61,16 @@ class StickyWindowService {
   }
 
   Future<void> show(Note note) async {
+    _showChain = (_showChain ?? Future<void>.value()).then((_) {
+      return _showSingle(note);
+    });
+    return _showChain;
+  }
+
+  Future<void> _showSingle(Note note) async {
     if (!isSupported) return;
     final target = _controller?.todayTodoNote ?? note;
+    if (_openingNoteIds.contains(target.id)) return;
 
     for (final entry in _noteWindows.entries.toList()) {
       if (entry.key == target.id) continue;
@@ -76,22 +86,32 @@ class StickyWindowService {
       return;
     }
 
-    final window = await WindowController.create(
-      WindowConfiguration(
-        arguments: jsonEncode({
-          'type': 'sticky',
-          'note': target.toJson(),
-        }),
-        hiddenAtLaunch: true,
-      ),
-    );
-    _noteWindows[target.id] = window;
-    await window.show();
+    _openingNoteIds.add(target.id);
+    try {
+      final window = await WindowController.create(
+        WindowConfiguration(
+          arguments: jsonEncode({
+            'type': 'sticky',
+            'note': target.toJson(),
+          }),
+          hiddenAtLaunch: true,
+        ),
+      );
+      if (_noteWindows.containsKey(target.id)) {
+        await _invokeSafely(window, 'sticky-note-lock');
+        return;
+      }
+      _noteWindows[target.id] = window;
+      await window.show();
+    } finally {
+      _openingNoteIds.remove(target.id);
+    }
   }
 
   Future<void> closeAll() async {
     final windows = _noteWindows.values.toList();
     _noteWindows.clear();
+    _openingNoteIds.clear();
     for (final window in windows) {
       await _invokeSafely(window, 'sticky-note-lock');
     }

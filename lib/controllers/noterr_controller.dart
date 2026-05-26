@@ -898,6 +898,9 @@ class NoterrController extends ChangeNotifier {
         ),
       );
     }
+    if (staleBoards.isEmpty) {
+      carryTasks.addAll(_missedCarryTasksFromLatestHistory(now));
+    }
 
     if (carryTasks.isNotEmpty) {
       final today = todayTodoNote ??
@@ -929,6 +932,42 @@ class NoterrController extends ChangeNotifier {
 
     await _mergeDuplicateTodayBoards(now);
     await _deleteHistoryOlderThan365Days();
+  }
+
+  List<ChecklistItem> _missedCarryTasksFromLatestHistory(DateTime now) {
+    final latestHistory = _notes.where((note) {
+      return !note.isDeleted &&
+          note.isArchived &&
+          note.boardName == 'History' &&
+          note.supportsChecklist &&
+          note.createdAt.toLocal().isBefore(DateTime(
+                now.year,
+                now.month,
+                now.day,
+              )) &&
+          note.checklist.any(
+            (item) => !item.done && item.text.trim().isNotEmpty,
+          );
+    }).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    if (latestHistory.isEmpty) return const [];
+    final source = latestHistory.first;
+    final today = todayTodoNote;
+    final existingTexts = today?.checklist
+            .map((item) => item.text.trim().toLowerCase())
+            .where((text) => text.isNotEmpty)
+            .toSet() ??
+        <String>{};
+    return source.checklist
+        .where((item) {
+          final text = item.text.trim();
+          return !item.done &&
+              text.isNotEmpty &&
+              !existingTexts.contains(text.toLowerCase());
+        })
+        .map((item) => item.copyWith(carriedFrom: source.createdAt))
+        .toList();
   }
 
   Future<void> _mergeDuplicateTodayBoards(DateTime now) async {
