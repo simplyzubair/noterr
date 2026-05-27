@@ -898,7 +898,7 @@ class NoterrController extends ChangeNotifier {
         ),
       );
     }
-    if (staleBoards.isEmpty) {
+    if (staleBoards.isEmpty && todayTodoNote == null) {
       carryTasks.addAll(_missedCarryTasksFromLatestHistory(now));
     }
 
