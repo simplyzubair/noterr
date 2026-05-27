@@ -254,14 +254,7 @@ class NoterrController extends ChangeNotifier {
       }
       return existing;
     }
-    final note = Note.blank(_deviceId, type: NoteType.full).copyWith(
-      title: title,
-      boardName: 'Today',
-      isPinned: true,
-      popOnDesktop: true,
-      showOnMobileWidget: true,
-      colorHex: 'F2F2F2',
-    );
+    final note = _newTodayBoard(now);
     _notes.add(note);
     await _persistAndPush(note);
     return note;
@@ -903,15 +896,7 @@ class NoterrController extends ChangeNotifier {
     }
 
     if (carryTasks.isNotEmpty) {
-      final today = todayTodoNote ??
-          Note.blank(_deviceId, type: NoteType.full).copyWith(
-            title: _dailyTitle(now),
-            boardName: 'Today',
-            isPinned: true,
-            popOnDesktop: true,
-            showOnMobileWidget: true,
-            colorHex: 'F2F2F2',
-          );
+      final today = todayTodoNote ?? _newTodayBoard(now);
       final existingTexts =
           today.checklist.map((item) => item.text.trim()).toSet();
       final mergedTasks = [
@@ -1070,6 +1055,32 @@ class NoterrController extends ChangeNotifier {
     _syncState = SyncState.error;
     _error = error;
     notifyListeners();
+  }
+
+  Note _newTodayBoard(DateTime now) {
+    final previous = _latestDailyStickySettings;
+    return Note.blank(_deviceId, type: NoteType.full).copyWith(
+      title: _dailyTitle(now),
+      boardName: 'Today',
+      isPinned: true,
+      popOnDesktop: previous?.popOnDesktop ?? true,
+      showOnMobileWidget: previous?.showOnMobileWidget ?? true,
+      isAlwaysOnTop: previous?.isAlwaysOnTop ?? false,
+      colorHex: previous?.colorHex ?? 'F2F2F2',
+      opacity: previous?.opacity ?? 1,
+      bounds: previous?.bounds,
+    );
+  }
+
+  Note? get _latestDailyStickySettings {
+    final candidates = _notes.where((note) {
+      return !note.isDeleted &&
+          note.supportsChecklist &&
+          (note.boardName == 'Today' || note.boardName == 'History') &&
+          note.bounds != null;
+    }).toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return candidates.firstOrNull;
   }
 
   bool _isSameLocalDay(DateTime a, DateTime b) {

@@ -175,14 +175,13 @@ class NoterrWidgetSyncService : Service() {
             val item = checklist.getJSONObject(index)
             val text = item.optString("text").trim()
             if (text.isEmpty()) continue
-            val carried = if (item.has("carriedFrom") && !item.isNull("carriedFrom")) " (carried)" else ""
             taskLines.add(
                 if (item.optBoolean("done", false)) {
-                    "[x] $text$carried"
+                    "[x] $text"
                 } else if (item.optBoolean("isFocus", false)) {
-                    "NOW: $text$carried"
+                    "NOW: $text"
                 } else {
-                    "- $text$carried"
+                    "- $text"
                 }
             )
         }

@@ -1113,10 +1113,6 @@ class _ChecklistRowState extends State<_ChecklistRow> {
                       selected: widget.item.reminderAt != null,
                       onPressed: widget.onReminder,
                     ),
-                    if (widget.item.carriedFrom != null)
-                      _TaskMetaText(
-                        'carried ${DateFormat('d MMM').format(widget.item.carriedFrom!.toLocal())}',
-                      ),
                     if (widget.item.reminderAt != null)
                       _TaskMetaText(
                         DateFormat('d MMM, HH:mm')

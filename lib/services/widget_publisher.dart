@@ -136,8 +136,7 @@ class WidgetPublisher {
 
   String _taskLine(ChecklistItem item) {
     final prefix = item.isFocus ? 'NOW: ' : '- ';
-    final suffix = item.carriedFrom == null ? '' : ' (carried)';
-    return '$prefix${item.text}$suffix';
+    return '$prefix${item.text}';
   }
 
   String _stickyBody(List<Note> notes) {
