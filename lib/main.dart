@@ -13,7 +13,8 @@ import 'ui/sticky_note_window.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
-  final startHidden = args.contains('--start-hidden');
+  final showEditor = args.contains('--show-editor');
+  final startHidden = args.contains('--start-hidden') || !showEditor;
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     final multiWindowController = await WindowController.fromCurrentEngine();
@@ -89,6 +90,7 @@ Future<void> main(List<String> args) async {
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     await windowManager.ensureInitialized();
+    await windowManager.setPreventClose(true);
     final options = WindowOptions(
       size: AppConfig.mobilePreview
           ? const Size(430, 860)
@@ -120,6 +122,7 @@ Future<void> main(List<String> args) async {
     NoterrApp(
       hasCloud: AppConfig.hasSupabase,
       dataProfile: AppConfig.dataProfile,
+      startHidden: startHidden,
     ),
   );
 }

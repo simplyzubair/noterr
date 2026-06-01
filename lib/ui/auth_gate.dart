@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../controllers/noterr_controller.dart';
 import '../services/local_vault.dart';
@@ -16,10 +18,12 @@ class AuthGate extends StatefulWidget {
     super.key,
     required this.hasCloud,
     this.dataProfile = '',
+    this.startHidden = false,
   });
 
   final bool hasCloud;
   final String dataProfile;
+  final bool startHidden;
 
   @override
   State<AuthGate> createState() => _AuthGateState();
@@ -46,6 +50,10 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     if (widget.hasCloud) {
       _autoUnlocking = true;
       unawaited(_tryAutoUnlock());
+    } else if (widget.startHidden) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_showUnlockWindow());
+      });
     }
   }
 
@@ -57,8 +65,20 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     } catch (_) {
       // If the stored device key is invalid, the normal unlock screen appears.
     } finally {
+      if (mounted && !_controller.isUnlocked && widget.startHidden) {
+        await _showUnlockWindow();
+      }
       if (mounted) setState(() => _autoUnlocking = false);
     }
+  }
+
+  Future<void> _showUnlockWindow() async {
+    if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) return;
+    try {
+      await windowManager.setSkipTaskbar(false);
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (_) {}
   }
 
   @override
@@ -86,7 +106,10 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         if (!_controller.isUnlocked) {
           return UnlockScreen(controller: _controller);
         }
-        return WorkspaceScreen(controller: _controller);
+        return WorkspaceScreen(
+          controller: _controller,
+          startHidden: widget.startHidden,
+        );
       },
     );
   }

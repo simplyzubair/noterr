@@ -16,9 +16,14 @@ import '../services/sticky_window_service.dart';
 import 'note_colors.dart';
 
 class WorkspaceScreen extends StatefulWidget {
-  const WorkspaceScreen({super.key, required this.controller});
+  const WorkspaceScreen({
+    super.key,
+    required this.controller,
+    this.startHidden = false,
+  });
 
   final NoterrController controller;
+  final bool startHidden;
 
   @override
   State<WorkspaceScreen> createState() => _WorkspaceScreenState();
@@ -42,7 +47,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       unawaited(_initDesktopShell());
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.controller.ensureTodayTodoNote();
+      unawaited(_openStartupSticky());
       _checkTaskReminders();
     });
     _reminderTimer = Timer.periodic(
@@ -91,8 +96,19 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
           ],
         ),
       );
+      if (widget.startHidden) {
+        await _hideToTray();
+      }
     } catch (_) {
       // Desktop shell plugins are unavailable in widget tests.
+    }
+  }
+
+  Future<void> _openStartupSticky() async {
+    await widget.controller.ensureTodayTodoNote();
+    if (_isDesktop) {
+      await StickyWindowService.instance.showDailySticky();
+      if (widget.startHidden) await _hideToTray();
     }
   }
 

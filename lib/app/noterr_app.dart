@@ -8,10 +8,12 @@ class NoterrApp extends StatelessWidget {
     super.key,
     required this.hasCloud,
     this.dataProfile = '',
+    this.startHidden = false,
   });
 
   final bool hasCloud;
   final String dataProfile;
+  final bool startHidden;
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +22,11 @@ class NoterrApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: buildNoterrTheme(Brightness.light),
       darkTheme: buildNoterrTheme(Brightness.dark),
-      home: AuthGate(hasCloud: hasCloud, dataProfile: dataProfile),
+      home: AuthGate(
+        hasCloud: hasCloud,
+        dataProfile: dataProfile,
+        startHidden: startHidden,
+      ),
     );
   }
 }
