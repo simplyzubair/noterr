@@ -52,8 +52,8 @@ class NoterrWidgetSyncService : Service() {
             executor = Executors.newSingleThreadScheduledExecutor()
             executor?.scheduleWithFixedDelay(
                 { refreshWidgetSafely() },
-                2,
-                30,
+                1,
+                10,
                 TimeUnit.SECONDS
             )
         }
@@ -112,7 +112,7 @@ class NoterrWidgetSyncService : Service() {
             accessToken
         )
 
-        var selected: JSONObject? = null
+        val todayNotes = mutableListOf<JSONObject>()
         for (index in 0 until rows.length()) {
             val row = rows.getJSONObject(index)
             val note = decryptNote(row, vaultKey)
@@ -120,9 +120,9 @@ class NoterrWidgetSyncService : Service() {
             if (note.optBoolean("isArchived", false)) continue
             if (note.optString("boardName") != "Today") continue
             if (!note.optBoolean("showOnMobileWidget", true)) continue
-            selected = note
-            break
+            todayNotes.add(note)
         }
+        val selected = unifiedTodayNote(todayNotes)
         if (selected == null) {
             getSharedPreferences("noterr_widget", Context.MODE_PRIVATE)
                 .edit()
@@ -144,6 +144,36 @@ class NoterrWidgetSyncService : Service() {
             .apply()
 
         updateHomeWidgets()
+    }
+
+    private fun unifiedTodayNote(notes: List<JSONObject>): JSONObject? {
+        if (notes.isEmpty()) return null
+        if (notes.size == 1) return notes.first()
+
+        val base = JSONObject(notes.first().toString())
+        val seenBodies = linkedSetOf<String>()
+        val bodyParts = mutableListOf<String>()
+        val checklistByKey = linkedMapOf<String, JSONObject>()
+
+        for (note in notes) {
+            val body = note.optString("body").trim()
+            if (body.isNotEmpty() && seenBodies.add(body.lowercase())) {
+                bodyParts.add(body)
+            }
+            val checklist = note.optJSONArray("checklist") ?: JSONArray()
+            for (index in 0 until checklist.length()) {
+                val item = checklist.getJSONObject(index)
+                val text = item.optString("text").trim()
+                if (text.isEmpty()) continue
+                checklistByKey.putIfAbsent(text.lowercase(), item)
+            }
+        }
+
+        base.put("body", bodyParts.joinToString("\n\n"))
+        val mergedChecklist = JSONArray()
+        checklistByKey.values.forEach { mergedChecklist.put(it) }
+        base.put("checklist", mergedChecklist)
+        return base
     }
 
     private fun updateHomeWidgets() {

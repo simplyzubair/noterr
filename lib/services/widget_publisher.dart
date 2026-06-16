@@ -29,7 +29,7 @@ class WidgetPublisher {
     final dailyBoards = visible
         .where((note) => note.boardName == 'Today' && note.showOnMobileWidget)
         .toList();
-    final dailyBoard = dailyBoards.isEmpty ? null : dailyBoards.first;
+    final dailyBoard = _unifiedDailyBoard(dailyBoards);
 
     final widgetNotes =
         visible.where((note) => note.showOnMobileWidget).toList();
@@ -104,6 +104,34 @@ class WidgetPublisher {
 
   String _withQuote(String body) {
     return '${DailyQuote.forDate()}\n\n$body';
+  }
+
+  Note? _unifiedDailyBoard(List<Note> dailyBoards) {
+    if (dailyBoards.isEmpty) return null;
+    if (dailyBoards.length == 1) return dailyBoards.first;
+
+    final bodyParts = <String>[];
+    final seenBodies = <String>{};
+    final checklistByKey = <String, ChecklistItem>{};
+    for (final note in dailyBoards) {
+      final body = note.body.trim();
+      if (body.isNotEmpty && seenBodies.add(body.toLowerCase())) {
+        bodyParts.add(body);
+      }
+      for (final item in note.checklist) {
+        final text = item.text.trim();
+        if (text.isEmpty) continue;
+        final key = text.toLowerCase();
+        checklistByKey.putIfAbsent(key, () => item);
+      }
+    }
+
+    final base = dailyBoards.first;
+    return base.copyWith(
+      type: NoteType.full,
+      body: bodyParts.join('\n\n'),
+      checklist: checklistByKey.values.toList(),
+    );
   }
 
   String _todoBody(Note? note) {

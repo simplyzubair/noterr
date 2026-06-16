@@ -870,7 +870,10 @@ class NoterrController extends ChangeNotifier {
     }).toList();
 
     final carryTasks = <ChecklistItem>[];
+    final carryBodies = <String>[];
     for (final board in staleBoards) {
+      final body = board.body.trim();
+      if (body.isNotEmpty) carryBodies.add(body);
       carryTasks.addAll(
         board.checklist
             .where(
@@ -893,16 +896,24 @@ class NoterrController extends ChangeNotifier {
     }
     if (staleBoards.isEmpty && todayTodoNote == null) {
       carryTasks.addAll(_missedCarryTasksFromLatestHistory(now));
+      final body = _missedCarryBodyFromLatestHistory(now);
+      if (body != null) carryBodies.add(body);
     }
 
-    if (carryTasks.isNotEmpty) {
+    if (carryTasks.isNotEmpty || carryBodies.isNotEmpty) {
       final today = todayTodoNote ?? _newTodayBoard(now);
-      final existingTexts =
-          today.checklist.map((item) => item.text.trim()).toSet();
+      final existingTexts = today.checklist
+          .map((item) => item.text.trim().toLowerCase())
+          .toSet();
+      final mergedBody = _mergeBodyParts([
+        today.body,
+        ...carryBodies,
+      ]);
       final mergedTasks = [
         ...today.checklist,
         ...carryTasks
-            .where((item) => !existingTexts.contains(item.text.trim()))
+            .where((item) =>
+                !existingTexts.contains(item.text.trim().toLowerCase()))
             .map(
               (item) => ChecklistItem(
                 text: item.text,
@@ -912,7 +923,14 @@ class NoterrController extends ChangeNotifier {
               ),
             ),
       ];
-      await _persistAndPush(_touch(today.copyWith(checklist: mergedTasks)));
+      await _persistAndPush(
+        _touch(
+          today.copyWith(
+            body: mergedBody,
+            checklist: mergedTasks,
+          ),
+        ),
+      );
     }
 
     await _mergeDuplicateTodayBoards(now);
@@ -955,6 +973,25 @@ class NoterrController extends ChangeNotifier {
         .toList();
   }
 
+  String? _missedCarryBodyFromLatestHistory(DateTime now) {
+    final latestHistory = _notes.where((note) {
+      return !note.isDeleted &&
+          note.isArchived &&
+          note.boardName == 'History' &&
+          note.supportsBody &&
+          note.createdAt.toLocal().isBefore(DateTime(
+                now.year,
+                now.month,
+                now.day,
+              )) &&
+          note.body.trim().isNotEmpty;
+    }).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    if (latestHistory.isEmpty) return null;
+    return latestHistory.first.body.trim();
+  }
+
   Future<void> _mergeDuplicateTodayBoards(DateTime now) async {
     final boards = _notes.where((note) {
       return !note.isDeleted &&
@@ -967,10 +1004,10 @@ class NoterrController extends ChangeNotifier {
     boards.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     final keeper = boards.first;
     final duplicateBoards = boards.skip(1).toList();
-    final bodyParts = <String>[
-      keeper.body.trim(),
-      ...duplicateBoards.map((note) => note.body.trim()),
-    ].where((part) => part.isNotEmpty).toSet().toList();
+    final body = _mergeBodyParts([
+      keeper.body,
+      ...duplicateBoards.map((note) => note.body),
+    ]);
     final checklistByKey = <String, ChecklistItem>{};
     for (final board in boards) {
       for (final item in board.checklist) {
@@ -984,7 +1021,7 @@ class NoterrController extends ChangeNotifier {
         keeper.copyWith(
           title: _dailyTitle(now),
           type: NoteType.full,
-          body: bodyParts.join('\n\n'),
+          body: body,
           checklist: checklistByKey.values.toList(),
           isPinned: true,
           popOnDesktop: true,
@@ -1055,6 +1092,18 @@ class NoterrController extends ChangeNotifier {
     _syncState = SyncState.error;
     _error = error;
     notifyListeners();
+  }
+
+  String _mergeBodyParts(Iterable<String> parts) {
+    final seen = <String>{};
+    final merged = <String>[];
+    for (final part in parts) {
+      final trimmed = part.trim();
+      if (trimmed.isEmpty) continue;
+      final key = trimmed.toLowerCase();
+      if (seen.add(key)) merged.add(trimmed);
+    }
+    return merged.join('\n\n');
   }
 
   Note _newTodayBoard(DateTime now) {
