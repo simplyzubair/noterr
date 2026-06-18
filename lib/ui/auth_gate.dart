@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../app/app_config.dart';
 import '../controllers/noterr_controller.dart';
 import '../services/local_vault.dart';
 import '../services/remote_sync_service.dart';
@@ -38,7 +38,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     final remote = widget.hasCloud
-        ? SupabaseRemoteSyncService(Supabase.instance.client)
+        ? CloudflareRemoteSyncService(AppConfig.syncUrl)
         : const NoopRemoteSyncService();
     _controller = NoterrController(
       localVault: LocalVault(profile: widget.dataProfile),

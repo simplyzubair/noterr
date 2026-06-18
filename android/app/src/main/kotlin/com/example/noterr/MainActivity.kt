@@ -20,8 +20,7 @@ class MainActivity : FlutterActivity() {
             if (call.method == "configureLiveWidgetSync") {
                 getSharedPreferences("noterr_live_widget_sync", Context.MODE_PRIVATE)
                     .edit()
-                    .putString("supabase_url", call.argument<String>("supabaseUrl") ?: "")
-                    .putString("supabase_anon_key", call.argument<String>("supabaseAnonKey") ?: "")
+                    .putString("sync_url", call.argument<String>("syncUrl") ?: "")
                     .putString("passphrase", call.argument<String>("passphrase") ?: "")
                     .apply()
                 try {

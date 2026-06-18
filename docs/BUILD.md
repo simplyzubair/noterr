@@ -56,10 +56,10 @@ once, then use:
 The config is saved in `sync_config.bat`, which is ignored by git.
 
 ```powershell
-flutter run -d windows --dart-define=SUPABASE_URL="https://YOUR_PROJECT.supabase.co" --dart-define=SUPABASE_ANON_KEY="YOUR_ANON_KEY"
+flutter run -d windows --dart-define=NOTERR_SYNC_URL="https://noterr-sync.YOUR-SUBDOMAIN.workers.dev"
 ```
 
-For the local-only preview, omit the Supabase values:
+For the local-only preview, omit the Cloudflare Worker URL:
 
 ```powershell
 flutter run -d windows
@@ -87,7 +87,7 @@ For a debug APK with cloud sync enabled:
 ```
 
 ```powershell
-flutter build apk --release --dart-define=SUPABASE_URL="https://YOUR_PROJECT.supabase.co" --dart-define=SUPABASE_ANON_KEY="YOUR_ANON_KEY"
+flutter build apk --release --dart-define=NOTERR_SYNC_URL="https://noterr-sync.YOUR-SUBDOMAIN.workers.dev"
 ```
 
 The APK will be under:
@@ -99,7 +99,7 @@ build/app/outputs/flutter-apk/app-release.apk
 ## Build Windows Release
 
 ```powershell
-flutter build windows --release --dart-define=SUPABASE_URL="https://YOUR_PROJECT.supabase.co" --dart-define=SUPABASE_ANON_KEY="YOUR_ANON_KEY"
+flutter build windows --release --dart-define=NOTERR_SYNC_URL="https://noterr-sync.YOUR-SUBDOMAIN.workers.dev"
 ```
 
 The executable will be under:

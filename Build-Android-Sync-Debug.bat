@@ -8,8 +8,7 @@ set "CONFIG=%SOURCE_DIR%\sync_config.bat"
 
 if not exist "%CONFIG%" goto :missing_config
 call "%CONFIG%"
-if "%SUPABASE_URL%"=="" goto :missing_config
-if "%SUPABASE_ANON_KEY%"=="" goto :missing_config
+if "%NOTERR_SYNC_URL%"=="" goto :missing_config
 
 pushd "%APP_DIR%" || exit /b 1
 copy "%SOURCE_DIR%\pubspec.yaml" "%APP_DIR%\pubspec.yaml" >nul
@@ -18,7 +17,7 @@ if errorlevel 8 goto :fail
 robocopy "%SOURCE_DIR%\test" "%APP_DIR%\test" /MIR >nul
 if errorlevel 8 goto :fail
 call "%FLUTTER%" pub get || goto :fail
-call "%FLUTTER%" build apk --debug --dart-define=SUPABASE_URL="%SUPABASE_URL%" --dart-define=SUPABASE_ANON_KEY="%SUPABASE_ANON_KEY%" || goto :fail
+call "%FLUTTER%" build apk --debug --dart-define=NOTERR_SYNC_URL="%NOTERR_SYNC_URL%" || goto :fail
 echo.
 echo Sync APK created:
 echo %APP_DIR%\build\app\outputs\flutter-apk\app-debug.apk

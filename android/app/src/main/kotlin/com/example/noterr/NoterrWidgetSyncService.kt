@@ -78,39 +78,25 @@ class NoterrWidgetSyncService : Service() {
 
     private fun refreshWidget() {
         val prefs = getSharedPreferences("noterr_live_widget_sync", Context.MODE_PRIVATE)
-        val supabaseUrl = prefs.getString("supabase_url", "")?.trim().orEmpty()
-        val anonKey = prefs.getString("supabase_anon_key", "")?.trim().orEmpty()
+        val syncUrl = prefs.getString("sync_url", "")?.trim()?.trimEnd('/') ?: ""
         val passphrase = prefs.getString("passphrase", "")?.trim().orEmpty()
-        if (supabaseUrl.isEmpty() || anonKey.isEmpty() || passphrase.isEmpty()) return
+        if (syncUrl.isEmpty() || passphrase.isEmpty()) return
 
-        val credentials = syncCredentials(passphrase)
+        val syncId = syncId(passphrase)
         val auth = postJson(
-            "$supabaseUrl/auth/v1/token?grant_type=password",
-            anonKey,
-            null,
+            "$syncUrl/profile",
             JSONObject()
-                .put("email", credentials.first)
-                .put("password", credentials.second)
+                .put("syncId", syncId)
         )
-        val accessToken = auth.optString("access_token")
-        val userId = auth.optJSONObject("user")?.optString("id").orEmpty()
-        if (accessToken.isEmpty() || userId.isEmpty()) return
-
-        val profileRows = getArray(
-            "$supabaseUrl/rest/v1/noterr_profiles?select=vault_salt&user_id=eq.$userId&limit=1",
-            anonKey,
-            accessToken
-        )
-        if (profileRows.length() == 0) return
-        val salt = profileRows.getJSONObject(0).optString("vault_salt")
+        val salt = auth.optString("vaultSalt")
         if (salt.isEmpty()) return
         val vaultKey = deriveVaultKey(passphrase, salt)
 
-        val rows = getArray(
-            "$supabaseUrl/rest/v1/noterr_notes?select=*&owner_id=eq.$userId&order=updated_at.desc",
-            anonKey,
-            accessToken
+        val pull = postJson(
+            "$syncUrl/pull",
+            JSONObject().put("syncId", syncId)
         )
+        val rows = pull.optJSONArray("notes") ?: JSONArray()
 
         val todayNotes = mutableListOf<JSONObject>()
         for (index in 0 until rows.length()) {
@@ -292,12 +278,9 @@ class NoterrWidgetSyncService : Service() {
         return quotes[(day % quotes.size).toInt()]
     }
 
-    private fun syncCredentials(passphrase: String): Pair<String, String> {
+    private fun syncId(passphrase: String): String {
         val emailBytes = sha256("noterr-sync-email:v1:$passphrase")
-        val passwordBytes = sha256("noterr-sync-password:v1:$passphrase")
-        val emailId = emailBytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }.substring(0, 40)
-        val password = Base64.encodeToString(passwordBytes, Base64.URL_SAFE or Base64.NO_WRAP)
-        return "vault-$emailId@noterr.local" to "Noterr-$password"
+        return emailBytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }.substring(0, 40)
     }
 
     private fun deriveVaultKey(passphrase: String, salt: String): ByteArray {
@@ -314,28 +297,19 @@ class NoterrWidgetSyncService : Service() {
         return MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
     }
 
-    private fun postJson(url: String, anonKey: String, token: String?, body: JSONObject): JSONObject {
-        val connection = openConnection(url, anonKey, token, "POST")
+    private fun postJson(url: String, body: JSONObject): JSONObject {
+        val connection = openConnection(url, "POST")
         OutputStreamWriter(connection.outputStream).use { it.write(body.toString()) }
         return JSONObject(readResponse(connection))
     }
 
-    private fun getArray(url: String, anonKey: String, token: String): JSONArray {
-        val connection = openConnection(url, anonKey, token, "GET")
-        return JSONArray(readResponse(connection))
-    }
-
     private fun openConnection(
         url: String,
-        anonKey: String,
-        token: String?,
         method: String
     ): HttpURLConnection {
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.requestMethod = method
-        connection.setRequestProperty("apikey", anonKey)
         connection.setRequestProperty("Content-Type", "application/json")
-        if (token != null) connection.setRequestProperty("Authorization", "Bearer $token")
         if (method == "POST") connection.doOutput = true
         connection.connectTimeout = 15000
         connection.readTimeout = 15000

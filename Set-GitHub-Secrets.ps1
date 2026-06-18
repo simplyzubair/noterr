@@ -35,15 +35,13 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $config = Get-Content $configPath
-$url = ($config | Where-Object { $_ -like 'set "SUPABASE_URL=*' }) -replace '^set "SUPABASE_URL=', '' -replace '"$', ''
-$key = ($config | Where-Object { $_ -like 'set "SUPABASE_ANON_KEY=*' }) -replace '^set "SUPABASE_ANON_KEY=', '' -replace '"$', ''
+$url = ($config | Where-Object { $_ -like 'set "NOTERR_SYNC_URL=*' }) -replace '^set "NOTERR_SYNC_URL=', '' -replace '"$', ''
 
-if ([string]::IsNullOrWhiteSpace($url) -or [string]::IsNullOrWhiteSpace($key)) {
-  Write-Host "Supabase URL/key were not found in sync_config.bat." -ForegroundColor Yellow
+if ([string]::IsNullOrWhiteSpace($url)) {
+  Write-Host "NOTERR_SYNC_URL was not found in sync_config.bat." -ForegroundColor Yellow
   exit 1
 }
 
-& $ghPath secret set NOTERR_SUPABASE_URL --repo $repo --body $url
-& $ghPath secret set NOTERR_SUPABASE_ANON_KEY --repo $repo --body $key
+& $ghPath secret set NOTERR_SYNC_URL --repo $repo --body $url
 
 Write-Host "GitHub Actions secrets saved for $repo." -ForegroundColor Green

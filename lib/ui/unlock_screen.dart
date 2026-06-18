@@ -38,14 +38,15 @@ class _UnlockScreenState extends State<UnlockScreen> {
 
   String _friendlyUnlockError(Object error) {
     final message = error.toString();
-    if (message.contains('Email not confirmed')) {
-      return 'Disable email confirmation in Supabase Auth while testing, then try this passkey again.';
-    }
     if (message.contains('Enter a sync passkey')) {
       return 'Enter a sync passkey.';
     }
-    if (message.contains('Invalid login credentials')) {
-      return 'This passkey could not open the sync vault.';
+    if (message.toLowerCase().contains('unknown sync profile')) {
+      return 'Sync profile was not found. Try unlocking once while online.';
+    }
+    if (message.toLowerCase().contains('socket') ||
+        message.toLowerCase().contains('failed host lookup')) {
+      return 'Cannot reach sync service. Check internet and try again.';
     }
     return message;
   }
@@ -73,7 +74,7 @@ class _UnlockScreenState extends State<UnlockScreen> {
                 const SizedBox(height: 8),
                 Text(
                   widget.controller.hasCloud
-                      ? 'Use one private passkey on every device. It signs in and encrypts your notes.'
+                      ? 'Use one private passkey on every device. It encrypts and syncs your notes.'
                       : 'Use the same sync passphrase on every device.',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium,

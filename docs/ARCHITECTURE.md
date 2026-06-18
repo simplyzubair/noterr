@@ -1,48 +1,26 @@
 # Architecture
 
-## Recommendation
+Noterr is a Flutter app for Windows and Android. It is local-first and syncs through a Cloudflare Worker backed by Cloudflare D1.
 
-Use Flutter for Windows and Android, with Supabase as the first sync backend.
+## Data Model
 
-Supabase is a strong fit because the free plan currently includes a Postgres database, Auth, Storage, and Realtime. It is also easier to migrate away from later than Firebase because the data model is relational and the sync code is isolated behind `RemoteSyncService`.
+- Notes are stored locally in an encrypted vault.
+- The sync passphrase derives both the local encryption key and a stable sync id.
+- Cloudflare stores only encrypted note envelopes.
+- The Worker API exposes `/profile`, `/pull`, `/push`, and `/health`.
 
-## Sync Model
+## Cloud Sync
 
-Noterr is local-first:
+Cloudflare D1 tables:
 
-- Each device keeps an encrypted local vault.
-- Notes can be created and edited offline.
-- When online, note envelopes are uploaded to Supabase.
-- Supabase Realtime pushes remote changes to active devices.
-- Conflict resolution is last-write-wins for version 1, using `updatedAt` plus a revision counter.
+- `noterr_profiles`: sync id and vault salt.
+- `noterr_notes`: encrypted payload, nonce, MAC, revision, device id, and timestamps.
 
-## Encryption Model
+The Worker has no access to plaintext notes. It only upserts and returns encrypted blobs.
 
-Noterr uses a separate sync passphrase, not the Supabase login password.
+## Local Behavior
 
-- Supabase Auth identifies the user.
-- A public salt is stored in `noterr_profiles`.
-- The user enters the same sync passphrase on each device.
-- A 256-bit key is derived with PBKDF2-HMAC-SHA256.
-- Notes are encrypted with AES-GCM before local storage and before upload.
-- Supabase stores ciphertext, nonce, and MAC only.
-
-This means server-side global search cannot read note contents. Search runs locally after unlock.
-
-## Replaceable Backend
-
-The app only talks to cloud sync through `RemoteSyncService`.
-
-Future backends can implement the same interface:
-
-- Supabase now.
-- A custom API on DigitalOcean later.
-- A NAS-hosted sync API later.
-
-## Desktop Sticky Notes
-
-The Flutter source includes pin/always-on-top state and desktop window hooks. Full separate floating note windows need the generated Windows runner plus the `window_manager` or multi-window plugin integration after Flutter is installed.
-
-## Android Widgets
-
-Flutter cannot render Android home-screen widgets by itself. The app includes widget data publishing through `home_widget`; the next native step is adding a Kotlin `AppWidgetProvider` and widget layouts once the Android runner exists.
+- Windows starts in tray and opens the daily sticky.
+- Android app and widget use the same encrypted sync backend.
+- Completed/deleted tasks do not carry forward.
+- Notes and unfinished tasks carry forward into the next daily board.

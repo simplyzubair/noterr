@@ -1,40 +1,13 @@
-# Continuous Builds
+# CI
 
-GitHub Actions builds Noterr whenever code is pushed to `main`.
+GitHub release builds need one repository secret:
 
-## Required GitHub Secrets
+- `NOTERR_SYNC_URL`
 
-In GitHub, open:
+Use the deployed Cloudflare Worker URL, for example:
 
-`Settings -> Secrets and variables -> Actions -> New repository secret`
-
-Add these secrets:
-
-- `NOTERR_SUPABASE_URL`
-- `NOTERR_SUPABASE_ANON_KEY`
-
-Use the Noterr Supabase project values only.
-
-If GitHub CLI is installed and signed in, run this from the project folder:
-
-```powershell
-.\Set-GitHub-Secrets.ps1
+```text
+https://noterr-sync.YOUR-SUBDOMAIN.workers.dev
 ```
 
-## Build Outputs
-
-The workflow uploads these artifacts:
-
-- `noterr-android-apks`
-  - `app-arm64-v8a-release.apk` for most modern Android phones.
-  - `app-armeabi-v7a-release.apk` for older Android phones.
-  - `app-x86_64-release.apk` for Android emulators.
-- `noterr-windows-release`
-  - Zip of the Windows app folder.
-- `noterr-windows-installer`
-  - `NoterrSetup.exe`.
-
-## Manual Build
-
-Open the **Actions** tab, choose **Build Noterr**, then click
-**Run workflow**.
+The app encrypts notes locally before upload. Cloudflare D1 stores only encrypted payloads, nonces, MACs, revisions, device ids, and timestamps.

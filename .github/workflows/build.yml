@@ -39,8 +39,7 @@ jobs:
       - name: Build split release APKs
         run: >
           flutter build apk --release --split-per-abi
-          --dart-define=SUPABASE_URL="${{ secrets.NOTERR_SUPABASE_URL }}"
-          --dart-define=SUPABASE_ANON_KEY="${{ secrets.NOTERR_SUPABASE_ANON_KEY }}"
+          --dart-define=NOTERR_SYNC_URL="${{ secrets.NOTERR_SYNC_URL }}"
 
       - name: Upload Android APKs
         uses: actions/upload-artifact@v4
@@ -76,8 +75,7 @@ jobs:
       - name: Build Windows release
         run: >
           flutter build windows --release
-          --dart-define=SUPABASE_URL="${{ secrets.NOTERR_SUPABASE_URL }}"
-          --dart-define=SUPABASE_ANON_KEY="${{ secrets.NOTERR_SUPABASE_ANON_KEY }}"
+          --dart-define=NOTERR_SYNC_URL="${{ secrets.NOTERR_SYNC_URL }}"
 
       - name: Zip Windows app
         shell: pwsh

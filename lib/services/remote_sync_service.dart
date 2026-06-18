@@ -1,7 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:http/http.dart' as http;
 
 import '../models/note.dart';
 import 'vault_crypto.dart';
@@ -47,9 +48,8 @@ abstract class RemoteSyncService {
   bool get isAvailable;
   String? get currentUserId;
 
-  Future<AuthResponse> signUp(String email, String password);
-  Future<AuthResponse> signIn(String email, String password);
-  Future<void> signOut();
+  Future<void> openSyncProfile(String passphrase, {required String vaultSalt});
+  Future<void> closeSyncProfile();
   Future<String> getOrCreateVaultSalt();
   Future<List<Note>> pullNotes(SecretKey key);
   Future<void> pushNote(Note note, SecretKey key, String deviceId);
@@ -66,17 +66,13 @@ class NoopRemoteSyncService implements RemoteSyncService {
   String? get currentUserId => null;
 
   @override
-  Future<AuthResponse> signIn(String email, String password) {
-    throw UnsupportedError('Cloud sync is not configured.');
-  }
+  Future<void> openSyncProfile(
+    String passphrase, {
+    required String vaultSalt,
+  }) async {}
 
   @override
-  Future<AuthResponse> signUp(String email, String password) {
-    throw UnsupportedError('Cloud sync is not configured.');
-  }
-
-  @override
-  Future<void> signOut() async {}
+  Future<void> closeSyncProfile() async {}
 
   @override
   Future<String> getOrCreateVaultSalt() {
@@ -93,66 +89,90 @@ class NoopRemoteSyncService implements RemoteSyncService {
   Stream<RemoteNoteEnvelope> watchNoteEnvelopes() => const Stream.empty();
 }
 
-class SupabaseRemoteSyncService implements RemoteSyncService {
-  SupabaseRemoteSyncService(this._client);
+class CloudflareRemoteSyncService implements RemoteSyncService {
+  CloudflareRemoteSyncService(String syncUrl)
+      : _baseUri = Uri.parse(syncUrl.replaceFirst(RegExp(r'/+$'), ''));
 
-  final SupabaseClient _client;
+  final Uri _baseUri;
+  String? _syncId;
+  String? _vaultSalt;
 
   @override
   bool get isAvailable => true;
 
   @override
-  String? get currentUserId => _client.auth.currentUser?.id;
+  String? get currentUserId => _syncId;
 
   @override
-  Future<AuthResponse> signUp(String email, String password) {
-    return _client.auth.signUp(email: email, password: password);
+  Future<void> openSyncProfile(
+    String passphrase, {
+    required String vaultSalt,
+  }) async {
+    final credentials = await VaultCrypto.syncCredentials(passphrase);
+    final syncId = _syncIdFromEmail(credentials.email);
+    final response = await _post('/profile', {
+      'syncId': syncId,
+      'vaultSalt': vaultSalt,
+    });
+    _syncId = syncId;
+    _vaultSalt = response['vaultSalt'] as String;
   }
 
   @override
-  Future<AuthResponse> signIn(String email, String password) {
-    return _client.auth.signInWithPassword(email: email, password: password);
+  Future<void> closeSyncProfile() async {
+    _syncId = null;
+    _vaultSalt = null;
   }
-
-  @override
-  Future<void> signOut() => _client.auth.signOut();
 
   @override
   Future<String> getOrCreateVaultSalt() async {
-    final userId = currentUserId;
-    if (userId == null) throw const AuthException('Not signed in.');
-
-    final existing = await _client
-        .from('noterr_profiles')
-        .select('vault_salt')
-        .eq('user_id', userId)
-        .maybeSingle();
-    if (existing != null && (existing['vault_salt'] as String).isNotEmpty) {
-      return existing['vault_salt'] as String;
+    final salt = _vaultSalt;
+    if (salt == null || salt.isEmpty) {
+      throw StateError('Cloud sync profile is not open.');
     }
-
-    final salt = VaultCrypto.randomSalt();
-    await _client.from('noterr_profiles').upsert({
-      'user_id': userId,
-      'vault_salt': salt,
-    });
     return salt;
   }
 
   @override
   Future<List<Note>> pullNotes(SecretKey key) async {
-    final userId = currentUserId;
-    if (userId == null) return const [];
+    final syncId = _requireSyncId();
+    final response = await _post('/pull', {'syncId': syncId});
+    return _decodeNotes(response, key);
+  }
 
-    final rows = await _client
-        .from('noterr_notes')
-        .select()
-        .eq('owner_id', userId)
-        .order('updated_at', ascending: false);
+  @override
+  Future<void> pushNote(Note note, SecretKey key, String deviceId) async {
+    final syncId = _requireSyncId();
+    final payload = await VaultCrypto.encryptJson(note.toJson(), key);
+    await _post('/push', {
+      'syncId': syncId,
+      'note': {
+        'id': note.id,
+        'encrypted_payload': payload.cipherText,
+        'nonce': payload.nonce,
+        'mac': payload.mac,
+        'payload_version': 1,
+        'revision': note.revision,
+        'device_id': deviceId,
+        'deleted_at': note.deletedAt?.toIso8601String(),
+      },
+    });
+  }
 
+  @override
+  Stream<RemoteNoteEnvelope> watchNoteEnvelopes() => const Stream.empty();
+
+  Future<List<Note>> _decodeNotes(
+    Map<String, dynamic> response,
+    SecretKey key,
+  ) async {
+    final rows = ((response['notes'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((row) => RemoteNoteEnvelope.fromRow(
+              Map<String, dynamic>.from(row),
+            ));
     final notes = <Note>[];
-    for (final row in rows) {
-      final envelope = RemoteNoteEnvelope.fromRow(Map<String, dynamic>.from(row));
+    for (final envelope in rows) {
       final payload = EncryptedPayload(
         cipherText: envelope.encryptedPayload,
         nonce: envelope.nonce,
@@ -164,53 +184,38 @@ class SupabaseRemoteSyncService implements RemoteSyncService {
     return notes;
   }
 
-  @override
-  Future<void> pushNote(Note note, SecretKey key, String deviceId) async {
-    final userId = currentUserId;
-    if (userId == null) return;
-
-    final payload = await VaultCrypto.encryptJson(note.toJson(), key);
-    await _client.from('noterr_notes').upsert({
-      'id': note.id,
-      'owner_id': userId,
-      'encrypted_payload': payload.cipherText,
-      'nonce': payload.nonce,
-      'mac': payload.mac,
-      'payload_version': 1,
-      'revision': note.revision,
-      'device_id': deviceId,
-      'deleted_at': note.deletedAt?.toIso8601String(),
-    });
+  Future<Map<String, dynamic>> _post(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await http
+        .post(
+          _baseUri.resolve(path),
+          headers: const {'content-type': 'application/json'},
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 20));
+    final decoded = response.body.trim().isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError(decoded['error'] ?? 'Cloud sync failed.');
+    }
+    return decoded;
   }
 
-  @override
-  Stream<RemoteNoteEnvelope> watchNoteEnvelopes() {
-    final userId = currentUserId;
-    if (userId == null) return const Stream.empty();
+  String _requireSyncId() {
+    final syncId = _syncId;
+    if (syncId == null || syncId.isEmpty) {
+      throw StateError('Cloud sync profile is not open.');
+    }
+    return syncId;
+  }
 
-    final controller = StreamController<RemoteNoteEnvelope>();
-    final channel = _client.channel('public:noterr_notes:$userId')
-      ..onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'noterr_notes',
-        filter: PostgresChangeFilter(
-          type: PostgresChangeFilterType.eq,
-          column: 'owner_id',
-          value: userId,
-        ),
-        callback: (payload) {
-          final row = payload.newRecord;
-          if (row.isEmpty) return;
-          controller.add(RemoteNoteEnvelope.fromRow(row));
-        },
-      )
-      ..subscribe();
-
-    controller.onCancel = () async {
-      await _client.removeChannel(channel);
-    };
-
-    return controller.stream;
+  String _syncIdFromEmail(String email) {
+    final match = RegExp(r'^vault-([a-f0-9]{40})@noterr\.local$')
+        .firstMatch(email);
+    if (match == null) throw StateError('Invalid sync passphrase.');
+    return match.group(1)!;
   }
 }

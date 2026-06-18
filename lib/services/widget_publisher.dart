@@ -8,11 +8,10 @@ class WidgetPublisher {
   static const _channel = MethodChannel('noterr/widget');
 
   Future<void> configureLiveWidgetSync(String passphrase) async {
-    if (!AppConfig.hasSupabase) return;
+    if (!AppConfig.hasCloudSync) return;
     try {
       await _channel.invokeMethod<void>('configureLiveWidgetSync', {
-        'supabaseUrl': AppConfig.supabaseUrl,
-        'supabaseAnonKey': AppConfig.supabaseAnonKey,
+        'syncUrl': AppConfig.syncUrl,
         'passphrase': passphrase,
       });
     } catch (_) {

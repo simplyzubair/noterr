@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/note.dart';
 import '../services/local_vault.dart';
@@ -520,22 +519,12 @@ class NoterrController extends ChangeNotifier {
       ..sort((a, b) => a.reminder.dueAt!.compareTo(b.reminder.dueAt!));
   }
 
-  Future<void> signIn(String email, String password) async {
-    await _remote.signIn(email, password);
-    notifyListeners();
-  }
-
-  Future<void> signUp(String email, String password) async {
-    await _remote.signUp(email, password);
-    notifyListeners();
-  }
-
   Future<void> signOut() async {
     _syncTimer?.cancel();
     _dailyTimer?.cancel();
     await _remoteSub?.cancel();
     await _localVault.clearSavedPassphrase();
-    await _remote.signOut();
+    await _remote.closeSyncProfile();
     _key = null;
     _notes.clear();
     notifyListeners();
@@ -569,7 +558,12 @@ class NoterrController extends ChangeNotifier {
         }
       }
 
-      await _ensurePasskeySession(cleanPassphrase);
+      final fallbackSalt =
+          await _localVault.readCachedVaultSalt() ?? VaultCrypto.randomSalt();
+      await _remote.openSyncProfile(
+        cleanPassphrase,
+        vaultSalt: fallbackSalt,
+      );
       final cloudSalt = await _remote.getOrCreateVaultSalt();
       await _localVault.saveCachedVaultSalt(cloudSalt);
       await _openLocalVault(
@@ -630,7 +624,9 @@ class NoterrController extends ChangeNotifier {
 
   Future<void> _finishCloudUnlock(String passphrase) async {
     try {
-      await _ensurePasskeySession(passphrase);
+      final fallbackSalt =
+          await _localVault.readCachedVaultSalt() ?? VaultCrypto.randomSalt();
+      await _remote.openSyncProfile(passphrase, vaultSalt: fallbackSalt);
       final salt = await _remote.getOrCreateVaultSalt();
       await _localVault.saveCachedVaultSalt(salt);
       if (_activeVaultSalt != salt) {
@@ -674,23 +670,6 @@ class NoterrController extends ChangeNotifier {
     _dailyTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       unawaited(ensureTodayTodoNote());
     });
-  }
-
-  Future<void> _ensurePasskeySession(String passphrase) async {
-    if (!hasCloud) return;
-    final credentials = await VaultCrypto.syncCredentials(passphrase);
-    await _remote.signOut();
-    try {
-      await _remote.signIn(credentials.email, credentials.password);
-    } on AuthException catch (error) {
-      if (!error.message.toLowerCase().contains('invalid login credentials')) {
-        rethrow;
-      }
-      await _remote.signUp(credentials.email, credentials.password);
-      if (_remote.currentUserId == null) {
-        await _remote.signIn(credentials.email, credentials.password);
-      }
-    }
   }
 
   Future<Note> createNote({
@@ -786,8 +765,6 @@ class NoterrController extends ChangeNotifier {
       await _publishWidget();
       notifyListeners();
       _setSync(SyncState.idle);
-    } on AuthException catch (error) {
-      _setError(error.message);
     } catch (error) {
       _setError(error.toString());
     }

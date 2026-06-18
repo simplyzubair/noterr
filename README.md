@@ -1,31 +1,39 @@
 # Noterr
 
-Noterr is a Flutter sticky-note app planned for Windows desktop and Android. It is local-first, password encrypted, and designed to sync through Supabase now while keeping the sync layer replaceable for a NAS or DigitalOcean backend later.
+Noterr is a local-first sticky note and daily task app for Windows and Android.
 
-## Current Build Direction
+## Sync
 
-- One Flutter codebase for Windows and Android.
-- Supabase Auth, Realtime, Postgres, and Storage for the first cloud sync target.
-- End-to-end note encryption using a separate sync passphrase.
-- Encrypted local vault for offline use.
-- Sticky-note UX with colors, tags, checklists, reminders, attachments, archive, trash, search, pinning, and desktop floating-window hooks.
-- Android widget bridge planned through `home_widget` plus native Android widget files after Flutter generates the Android platform folder.
+Noterr now uses Cloudflare:
+
+- Cloudflare Worker: small HTTP sync API.
+- Cloudflare D1: encrypted database storage.
+- The app encrypts notes before upload. The Worker never sees plaintext.
 
 ## Setup
 
-1. Install Flutter, Android Studio SDKs, and Visual Studio Build Tools with the Desktop C++ workload.
-2. Run `flutter create --platforms=windows,android .` from this folder to generate platform runners.
-3. Run `flutter pub get`.
-4. Create a Supabase project and apply [supabase/schema.sql](supabase/schema.sql).
-5. Run with:
+1. Deploy the sync Worker:
 
 ```powershell
-flutter run -d windows --dart-define=SUPABASE_URL="https://YOUR_PROJECT.supabase.co" --dart-define=SUPABASE_ANON_KEY="YOUR_ANON_KEY"
+.\Deploy-Cloudflare-Sync.bat
 ```
 
-For local-only testing, omit the two `--dart-define` values.
+2. Copy the deployed `workers.dev` URL.
+3. Save it locally:
 
-## Build Artifacts
+```powershell
+.\Configure-Sync.bat
+```
 
-Windows installer and Android APK steps are in [docs/BUILD.md](docs/BUILD.md).
-Continuous GitHub builds are documented in [docs/CI.md](docs/CI.md).
+4. Build release apps:
+
+```powershell
+.\Build-Sync-Release.ps1
+```
+
+## Useful Paths
+
+- Windows install: `C:\Users\zubai\AppData\Local\Programs\Noterr\noterr.exe`
+- Android APK: `C:\tmp\NoterrBuild\build\app\outputs\flutter-apk\app-release.apk`
+- Worker source: `cloudflare/noterr-sync-worker.js`
+- D1 schema: `cloudflare/schema.sql`

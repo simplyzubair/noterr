@@ -3,7 +3,6 @@ import 'dart:io' show Platform;
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app/app_config.dart';
@@ -111,16 +110,9 @@ Future<void> main(List<String> args) async {
     });
   }
 
-  if (AppConfig.hasSupabase) {
-    await Supabase.initialize(
-      url: AppConfig.supabaseUrl,
-      anonKey: AppConfig.supabaseAnonKey,
-    );
-  }
-
   runApp(
     NoterrApp(
-      hasCloud: AppConfig.hasSupabase,
+      hasCloud: AppConfig.hasCloudSync,
       dataProfile: AppConfig.dataProfile,
       startHidden: startHidden,
     ),

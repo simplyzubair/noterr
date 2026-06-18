@@ -8,8 +8,7 @@ set "CONFIG=%SOURCE_DIR%\sync_config.bat"
 
 if not exist "%CONFIG%" goto :missing_config
 call "%CONFIG%"
-if "%SUPABASE_URL%"=="" goto :missing_config
-if "%SUPABASE_ANON_KEY%"=="" goto :missing_config
+if "%NOTERR_SYNC_URL%"=="" goto :missing_config
 
 pushd "%APP_DIR%" || exit /b 1
 copy "%SOURCE_DIR%\pubspec.yaml" "%APP_DIR%\pubspec.yaml" >nul
@@ -23,7 +22,7 @@ echo.
 echo If your phone is listed above, this will open Noterr with cloud sync enabled.
 echo Keep this window open while testing.
 pause
-call "%FLUTTER%" run -d android --dart-define=SUPABASE_URL="%SUPABASE_URL%" --dart-define=SUPABASE_ANON_KEY="%SUPABASE_ANON_KEY%"
+call "%FLUTTER%" run -d android --dart-define=NOTERR_SYNC_URL="%NOTERR_SYNC_URL%"
 popd
 exit /b 0
 

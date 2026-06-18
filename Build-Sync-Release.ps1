@@ -10,10 +10,9 @@ if (!(Test-Path $Config)) {
 }
 
 $configText = Get-Content $Config
-$SupabaseUrl = (($configText | Where-Object { $_ -match '^set\s+"?SUPABASE_URL=' } | Select-Object -First 1) -replace '^set\s+"?SUPABASE_URL=', '') -replace '"$', ''
-$SupabaseAnonKey = (($configText | Where-Object { $_ -match '^set\s+"?SUPABASE_ANON_KEY=' } | Select-Object -First 1) -replace '^set\s+"?SUPABASE_ANON_KEY=', '') -replace '"$', ''
+$SyncUrl = (($configText | Where-Object { $_ -match '^set\s+"?NOTERR_SYNC_URL=' } | Select-Object -First 1) -replace '^set\s+"?NOTERR_SYNC_URL=', '') -replace '"$', ''
 
-if ([string]::IsNullOrWhiteSpace($SupabaseUrl) -or [string]::IsNullOrWhiteSpace($SupabaseAnonKey)) {
+if ([string]::IsNullOrWhiteSpace($SyncUrl)) {
   throw "Sync config is incomplete. Run Configure-Sync.bat first."
 }
 
@@ -21,8 +20,8 @@ Push-Location $Project
 try {
   & $Flutter analyze
   & $Flutter test test\widget_test.dart test\sticky_window_payload_test.dart
-  & $Flutter build windows --release --dart-define="SUPABASE_URL=$SupabaseUrl" --dart-define="SUPABASE_ANON_KEY=$SupabaseAnonKey"
-  & $Flutter build apk --release --target-platform android-arm64 --dart-define="SUPABASE_URL=$SupabaseUrl" --dart-define="SUPABASE_ANON_KEY=$SupabaseAnonKey"
+  & $Flutter build windows --release --dart-define="NOTERR_SYNC_URL=$SyncUrl"
+  & $Flutter build apk --release --target-platform android-arm64 --dart-define="NOTERR_SYNC_URL=$SyncUrl"
 
   Get-Process noterr -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
   New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null

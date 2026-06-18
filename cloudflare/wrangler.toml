@@ -1,0 +1,8 @@
+name = "noterr-sync"
+main = "noterr-sync-worker.js"
+compatibility_date = "2026-06-18"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "noterr-sync"
+database_id = "e9aa2e20-6ec0-4b78-aad9-58bcf706ffd8"
