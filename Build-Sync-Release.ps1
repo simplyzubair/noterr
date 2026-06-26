@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $Flutter = "C:\tmp\flutter\bin\flutter.bat"
 $Project = "C:\tmp\NoterrBuild"
-$Config = "C:\Users\zubai\Documents\Noterr\sync_config.bat"
+$Config = Join-Path $PSScriptRoot "sync_config.bat"
 $InstallDir = "$env:LOCALAPPDATA\Programs\Noterr"
 
 if (!(Test-Path $Config)) {

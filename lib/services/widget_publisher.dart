@@ -112,6 +112,10 @@ class WidgetPublisher {
     final bodyParts = <String>[];
     final seenBodies = <String>{};
     final checklistByKey = <String, ChecklistItem>{};
+    final deletedKeys = dailyBoards
+        .expand((note) => note.deletedChecklistItemKeys)
+        .where((key) => key.trim().isNotEmpty)
+        .toSet();
     for (final note in dailyBoards) {
       final body = note.body.trim();
       if (body.isNotEmpty && seenBodies.add(body.toLowerCase())) {
@@ -120,7 +124,9 @@ class WidgetPublisher {
       for (final item in note.checklist) {
         final text = item.text.trim();
         if (text.isEmpty) continue;
-        final key = text.toLowerCase();
+        final keys = _checklistItemKeys(item);
+        if (keys.any(deletedKeys.contains)) continue;
+        final key = keys.first;
         checklistByKey.putIfAbsent(key, () => item);
       }
     }
@@ -130,7 +136,16 @@ class WidgetPublisher {
       type: NoteType.full,
       body: bodyParts.join('\n\n'),
       checklist: checklistByKey.values.toList(),
+      deletedChecklistItemKeys: deletedKeys.toList(),
     );
+  }
+
+  List<String> _checklistItemKeys(ChecklistItem item) {
+    final text = item.text.trim().toLowerCase();
+    return [
+      if (text.isNotEmpty) 'text:$text',
+      'id:${item.id}',
+    ];
   }
 
   String _todoBody(Note? note) {

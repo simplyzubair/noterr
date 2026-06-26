@@ -82,6 +82,7 @@ class _NoteEditorState extends State<NoteEditor> {
     String? boardName,
     List<String>? tags,
     List<ChecklistItem>? checklist,
+    List<String>? deletedChecklistItemKeys,
     List<NoteAttachment>? attachments,
     NoteReminder? reminder,
     bool? isPinned,
@@ -95,6 +96,7 @@ class _NoteEditorState extends State<NoteEditor> {
         boardName: boardName,
         tags: tags,
         checklist: checklist,
+        deletedChecklistItemKeys: deletedChecklistItemKeys,
         attachments: attachments,
         reminder: reminder,
         isPinned: isPinned,
@@ -226,6 +228,10 @@ class _NoteEditorState extends State<NoteEditor> {
               ? current.copyWith(text: text)
               : current)
           .toList(),
+      deletedChecklistItemKeys: _reviveChecklistText(
+        widget.note.deletedChecklistItemKeys,
+        text,
+      ),
     );
   }
 
@@ -243,7 +249,29 @@ class _NoteEditorState extends State<NoteEditor> {
     await _save(
       checklist:
           widget.note.checklist.where((current) => current.id != item.id).toList(),
+      deletedChecklistItemKeys: _deletedChecklistKeys(widget.note, [item]),
     );
+  }
+
+  List<String> _deletedChecklistKeys(
+    Note note,
+    Iterable<ChecklistItem> items,
+  ) {
+    final keys = note.deletedChecklistItemKeys
+        .where((key) => key.trim().isNotEmpty)
+        .toSet();
+    for (final item in items) {
+      final text = item.text.trim().toLowerCase();
+      if (text.isNotEmpty) keys.add('text:$text');
+      keys.add('id:${item.id}');
+    }
+    return keys.toList();
+  }
+
+  List<String> _reviveChecklistText(List<String> deletedKeys, String text) {
+    final key = 'text:${text.trim().toLowerCase()}';
+    if (key == 'text:') return deletedKeys;
+    return deletedKeys.where((deletedKey) => deletedKey != key).toList();
   }
 
   @override

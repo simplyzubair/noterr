@@ -278,6 +278,10 @@ class NoterrController extends ChangeNotifier {
           ...note.checklist,
           ChecklistItem(text: trimmed),
         ],
+        deletedChecklistItemKeys: _reviveChecklistText(
+          note.deletedChecklistItemKeys,
+          trimmed,
+        ),
       ),
     );
   }
@@ -292,7 +296,15 @@ class NoterrController extends ChangeNotifier {
     } else {
       items.insert(index + 1, next);
     }
-    await updateNote(note.copyWith(checklist: items));
+    await updateNote(
+      note.copyWith(
+        checklist: items,
+        deletedChecklistItemKeys: _reviveChecklistText(
+          note.deletedChecklistItemKeys,
+          next.text,
+        ),
+      ),
+    );
     return next;
   }
 
@@ -332,13 +344,22 @@ class NoterrController extends ChangeNotifier {
       note.copyWith(
         checklist:
             note.checklist.where((current) => current.id != item.id).toList(),
+        deletedChecklistItemKeys: _deletedChecklistKeys(note, [item]),
       ),
     );
   }
 
   Future<ChecklistItem> addChecklistItem(Note note, {String text = ''}) async {
     final next = ChecklistItem(text: text);
-    await updateNote(note.copyWith(checklist: [...note.checklist, next]));
+    await updateNote(
+      note.copyWith(
+        checklist: [...note.checklist, next],
+        deletedChecklistItemKeys: _reviveChecklistText(
+          note.deletedChecklistItemKeys,
+          text,
+        ),
+      ),
+    );
     return next;
   }
 
@@ -352,7 +373,15 @@ class NoterrController extends ChangeNotifier {
     } else {
       items.insert(index + 1, next);
     }
-    await updateNote(note.copyWith(checklist: items));
+    await updateNote(
+      note.copyWith(
+        checklist: items,
+        deletedChecklistItemKeys: _reviveChecklistText(
+          note.deletedChecklistItemKeys,
+          next.text,
+        ),
+      ),
+    );
     return next;
   }
 
@@ -370,6 +399,10 @@ class NoterrController extends ChangeNotifier {
                   : current,
             )
             .toList(),
+        deletedChecklistItemKeys: _reviveChecklistText(
+          note.deletedChecklistItemKeys,
+          text,
+        ),
       ),
     );
   }
@@ -440,19 +473,24 @@ class NoterrController extends ChangeNotifier {
   }
 
   Future<void> removeChecklistItem(Note note, ChecklistItem item) {
+    final deletedKeys = _deletedChecklistKeys(note, [item]);
     return updateNote(
       note.copyWith(
-        checklist:
-            note.checklist.where((current) => current.id != item.id).toList(),
+        checklist: note.checklist
+            .where((current) => current.id != item.id)
+            .toList(),
+        deletedChecklistItemKeys: deletedKeys,
       ),
     );
   }
 
   Future<void> clearDoneTodayTasks() async {
     final note = await ensureTodayTodoNote();
+    final done = note.checklist.where((item) => item.done).toList();
     await updateNote(
       note.copyWith(
         checklist: note.checklist.where((item) => !item.done).toList(),
+        deletedChecklistItemKeys: _deletedChecklistKeys(note, done),
       ),
     );
   }
@@ -981,14 +1019,22 @@ class NoterrController extends ChangeNotifier {
     boards.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     final keeper = boards.first;
     final duplicateBoards = boards.skip(1).toList();
-    final body = _mergeBodyParts([
-      keeper.body,
-      ...duplicateBoards.map((note) => note.body),
-    ]);
+    final body = keeper.body.trim().isEmpty
+        ? ''
+        : _mergeBodyParts([
+            keeper.body,
+            ...duplicateBoards.map((note) => note.body),
+          ]);
     final checklistByKey = <String, ChecklistItem>{};
+    final deletedKeys = boards
+        .expand((note) => note.deletedChecklistItemKeys)
+        .where((key) => key.trim().isNotEmpty)
+        .toSet();
     for (final board in boards) {
       for (final item in board.checklist) {
-        final key = item.text.trim().isEmpty ? item.id : item.text.trim();
+        final keys = _checklistItemKeys(item);
+        if (keys.any(deletedKeys.contains)) continue;
+        final key = keys.first;
         checklistByKey.putIfAbsent(key, () => item);
       }
     }
@@ -1000,6 +1046,7 @@ class NoterrController extends ChangeNotifier {
           type: NoteType.full,
           body: body,
           checklist: checklistByKey.values.toList(),
+          deletedChecklistItemKeys: deletedKeys.toList(),
           isPinned: true,
           popOnDesktop: true,
           showOnMobileWidget: true,
@@ -1081,6 +1128,33 @@ class NoterrController extends ChangeNotifier {
       if (seen.add(key)) merged.add(trimmed);
     }
     return merged.join('\n\n');
+  }
+
+  List<String> _deletedChecklistKeys(
+    Note note,
+    Iterable<ChecklistItem> items,
+  ) {
+    final keys = note.deletedChecklistItemKeys
+        .where((key) => key.trim().isNotEmpty)
+        .toSet();
+    for (final item in items) {
+      keys.addAll(_checklistItemKeys(item));
+    }
+    return keys.toList();
+  }
+
+  List<String> _checklistItemKeys(ChecklistItem item) {
+    final text = item.text.trim().toLowerCase();
+    return [
+      if (text.isNotEmpty) 'text:$text',
+      'id:${item.id}',
+    ];
+  }
+
+  List<String> _reviveChecklistText(List<String> deletedKeys, String text) {
+    final key = 'text:${text.trim().toLowerCase()}';
+    if (key == 'text:') return deletedKeys;
+    return deletedKeys.where((deletedKey) => deletedKey != key).toList();
   }
 
   Note _newTodayBoard(DateTime now) {

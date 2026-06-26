@@ -204,6 +204,7 @@ class Note {
     this.boardName = 'Personal',
     this.tags = const [],
     this.checklist = const [],
+    this.deletedChecklistItemKeys = const [],
     this.attachments = const [],
     this.reminder = const NoteReminder(dueAt: null),
     this.bounds,
@@ -259,6 +260,12 @@ class Note {
           .map(
               (item) => ChecklistItem.fromJson(Map<String, dynamic>.from(item)))
           .toList(),
+      deletedChecklistItemKeys:
+          ((json['deletedChecklistItemKeys'] as List?) ?? const [])
+              .whereType<String>()
+              .map((key) => key.trim())
+              .where((key) => key.isNotEmpty)
+              .toList(),
       attachments: ((json['attachments'] as List?) ?? const [])
           .whereType<Map>()
           .map((item) =>
@@ -297,6 +304,7 @@ class Note {
   final String boardName;
   final List<String> tags;
   final List<ChecklistItem> checklist;
+  final List<String> deletedChecklistItemKeys;
   final List<NoteAttachment> attachments;
   final NoteReminder reminder;
   final StickyBounds? bounds;
@@ -346,6 +354,7 @@ class Note {
     String? boardName,
     List<String>? tags,
     List<ChecklistItem>? checklist,
+    List<String>? deletedChecklistItemKeys,
     List<NoteAttachment>? attachments,
     NoteReminder? reminder,
     StickyBounds? bounds,
@@ -371,6 +380,8 @@ class Note {
       boardName: boardName ?? this.boardName,
       tags: tags ?? this.tags,
       checklist: checklist ?? this.checklist,
+      deletedChecklistItemKeys:
+          deletedChecklistItemKeys ?? this.deletedChecklistItemKeys,
       attachments: attachments ?? this.attachments,
       reminder: reminder ?? this.reminder,
       bounds: bounds ?? this.bounds,
@@ -398,6 +409,7 @@ class Note {
         'boardName': boardName,
         'tags': tags,
         'checklist': checklist.map((item) => item.toJson()).toList(),
+        'deletedChecklistItemKeys': deletedChecklistItemKeys,
         'attachments': attachments.map((item) => item.toJson()).toList(),
         'reminder': reminder.toJson(),
         'bounds': bounds?.toJson(),

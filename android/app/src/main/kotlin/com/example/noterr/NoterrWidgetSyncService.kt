@@ -140,8 +140,14 @@ class NoterrWidgetSyncService : Service() {
         val seenBodies = linkedSetOf<String>()
         val bodyParts = mutableListOf<String>()
         val checklistByKey = linkedMapOf<String, JSONObject>()
+        val deletedKeys = linkedSetOf<String>()
 
         for (note in notes) {
+            val deleted = note.optJSONArray("deletedChecklistItemKeys") ?: JSONArray()
+            for (index in 0 until deleted.length()) {
+                val key = deleted.optString(index).trim()
+                if (key.isNotEmpty()) deletedKeys.add(key)
+            }
             val body = note.optString("body").trim()
             if (body.isNotEmpty() && seenBodies.add(body.lowercase())) {
                 bodyParts.add(body)
@@ -151,7 +157,9 @@ class NoterrWidgetSyncService : Service() {
                 val item = checklist.getJSONObject(index)
                 val text = item.optString("text").trim()
                 if (text.isEmpty()) continue
-                checklistByKey.putIfAbsent(text.lowercase(), item)
+                val keys = checklistItemKeys(item)
+                if (keys.any { deletedKeys.contains(it) }) continue
+                checklistByKey.putIfAbsent(keys.first(), item)
             }
         }
 
@@ -160,6 +168,15 @@ class NoterrWidgetSyncService : Service() {
         checklistByKey.values.forEach { mergedChecklist.put(it) }
         base.put("checklist", mergedChecklist)
         return base
+    }
+
+    private fun checklistItemKeys(item: JSONObject): List<String> {
+        val text = item.optString("text").trim().lowercase()
+        val id = item.optString("id").trim()
+        val keys = mutableListOf<String>()
+        if (text.isNotEmpty()) keys.add("text:$text")
+        if (id.isNotEmpty()) keys.add("id:$id")
+        return keys
     }
 
     private fun updateHomeWidgets() {
