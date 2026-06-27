@@ -476,9 +476,8 @@ class NoterrController extends ChangeNotifier {
     final deletedKeys = _deletedChecklistKeys(note, [item]);
     return updateNote(
       note.copyWith(
-        checklist: note.checklist
-            .where((current) => current.id != item.id)
-            .toList(),
+        checklist:
+            note.checklist.where((current) => current.id != item.id).toList(),
         deletedChecklistItemKeys: deletedKeys,
       ),
     );
@@ -808,6 +807,16 @@ class NoterrController extends ChangeNotifier {
     }
   }
 
+  Future<void> saveNow() async {
+    await ensureTodayTodoNote();
+    await _saveLocal();
+    await _publishWidget();
+    notifyListeners();
+    if (hasCloud) {
+      await syncNow();
+    }
+  }
+
   void _subscribeRemote() {
     final key = _key;
     if (!hasCloud || key == null) return;
@@ -868,11 +877,57 @@ class NoterrController extends ChangeNotifier {
         continue;
       }
       final current = _notes[index];
-      final incomingWins = note.revision > current.revision ||
-          (note.revision == current.revision &&
-              note.updatedAt.isAfter(current.updatedAt));
-      if (incomingWins) _notes[index] = note;
+      _notes[index] = _mergeNote(current, note);
     }
+  }
+
+  Note _mergeNote(Note current, Note incoming) {
+    final incomingWins = _noteWins(incoming, current);
+    final winner = incomingWins ? incoming : current;
+    final other = incomingWins ? current : incoming;
+    if (winner.isDeleted || other.isDeleted) return winner;
+    if (!_isDailyBoard(winner) || !_isDailyBoard(other)) return winner;
+
+    final deletedKeys = {
+      ...winner.deletedChecklistItemKeys,
+      ...other.deletedChecklistItemKeys,
+    }.where((key) => key.trim().isNotEmpty).toSet();
+    final usedKeys = <String>{};
+    final checklist = <ChecklistItem>[];
+    for (final board in [winner, other]) {
+      for (final item in board.checklist) {
+        final text = item.text.trim();
+        if (text.isEmpty) continue;
+        final keys = _checklistItemKeys(item);
+        if (keys.any(deletedKeys.contains)) continue;
+        if (keys.any(usedKeys.contains)) continue;
+        usedKeys.addAll(keys);
+        checklist.add(item);
+      }
+    }
+
+    final body = winner.body.trim().isEmpty
+        ? ''
+        : _mergeBodyParts([winner.body, other.body]);
+    return winner.copyWith(
+      type: NoteType.full,
+      body: body,
+      checklist: checklist,
+      deletedChecklistItemKeys: deletedKeys.toList(),
+      isPinned: true,
+      popOnDesktop: true,
+      showOnMobileWidget: true,
+    );
+  }
+
+  bool _noteWins(Note candidate, Note current) {
+    return candidate.revision > current.revision ||
+        (candidate.revision == current.revision &&
+            candidate.updatedAt.isAfter(current.updatedAt));
+  }
+
+  bool _isDailyBoard(Note note) {
+    return note.boardName == 'Today' && note.supportsChecklist;
   }
 
   Future<void> _rollDailyBoardIfNeeded() async {
@@ -917,9 +972,8 @@ class NoterrController extends ChangeNotifier {
 
     if (carryTasks.isNotEmpty || carryBodies.isNotEmpty) {
       final today = todayTodoNote ?? _newTodayBoard(now);
-      final existingTexts = today.checklist
-          .map((item) => item.text.trim().toLowerCase())
-          .toSet();
+      final existingTexts =
+          today.checklist.map((item) => item.text.trim().toLowerCase()).toSet();
       final mergedBody = _mergeBodyParts([
         today.body,
         ...carryBodies,
@@ -1026,6 +1080,7 @@ class NoterrController extends ChangeNotifier {
             ...duplicateBoards.map((note) => note.body),
           ]);
     final checklistByKey = <String, ChecklistItem>{};
+    final usedKeys = <String>{};
     final deletedKeys = boards
         .expand((note) => note.deletedChecklistItemKeys)
         .where((key) => key.trim().isNotEmpty)
@@ -1034,8 +1089,9 @@ class NoterrController extends ChangeNotifier {
       for (final item in board.checklist) {
         final keys = _checklistItemKeys(item);
         if (keys.any(deletedKeys.contains)) continue;
-        final key = keys.first;
-        checklistByKey.putIfAbsent(key, () => item);
+        if (keys.any(usedKeys.contains)) continue;
+        usedKeys.addAll(keys);
+        checklistByKey[keys.first] = item;
       }
     }
 

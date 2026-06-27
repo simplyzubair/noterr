@@ -250,8 +250,18 @@ class _StickyNoteWindowState extends State<StickyNoteWindow>
     await _save(opacity: opacity);
   }
 
+  Future<void> _saveNow() async {
+    await _save(
+        title: _title.text, body: _body.text, checklist: _note.checklist);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Saved and synced')),
+    );
+  }
+
   Future<void> _runQuickAction(_StickyAction action) {
     return switch (action) {
+      _StickyAction.save => _saveNow(),
       _StickyAction.addTask => _addChecklistItem(),
       _StickyAction.pinOnTop => _toggleAlwaysOnTop(),
       _StickyAction.phoneWidget => _toggleMobileWidget(),
@@ -322,6 +332,7 @@ class _StickyNoteWindowState extends State<StickyNoteWindow>
               rolledUp: _rolledUp,
               onQuickAction: _runQuickAction,
               onAlwaysOnTop: _toggleAlwaysOnTop,
+              onSave: _saveNow,
               onRollUp: _toggleRolledUp,
               onWide: _makeWide,
               onClose: _close,
@@ -476,6 +487,7 @@ class _StickyQuoteStrip extends StatelessWidget {
 }
 
 enum _StickyAction {
+  save,
   addTask,
   pinOnTop,
   phoneWidget,
@@ -619,6 +631,14 @@ class _StickyStyleControls extends StatelessWidget {
 
 List<PopupMenuEntry<_StickyAction>> _quickMenuItems(Note note) {
   return [
+    const PopupMenuItem(
+      value: _StickyAction.save,
+      child: ListTile(
+        leading: Icon(Icons.save_outlined),
+        title: Text('Save and sync'),
+        contentPadding: EdgeInsets.zero,
+      ),
+    ),
     if (note.supportsChecklist)
       const PopupMenuItem(
         value: _StickyAction.addTask,
@@ -721,6 +741,7 @@ class _StickyTitleBar extends StatelessWidget {
     required this.rolledUp,
     required this.onQuickAction,
     required this.onAlwaysOnTop,
+    required this.onSave,
     required this.onRollUp,
     required this.onWide,
     required this.onClose,
@@ -732,6 +753,7 @@ class _StickyTitleBar extends StatelessWidget {
   final bool rolledUp;
   final ValueChanged<_StickyAction> onQuickAction;
   final VoidCallback onAlwaysOnTop;
+  final VoidCallback onSave;
   final VoidCallback onRollUp;
   final VoidCallback onWide;
   final VoidCallback onClose;
@@ -759,6 +781,12 @@ class _StickyTitleBar extends StatelessWidget {
               itemBuilder: (_) => _quickMenuItems(note),
               icon:
                   const Icon(Icons.more_vert, size: 18, color: Colors.black87),
+            ),
+            IconButton(
+              tooltip: 'Save and sync',
+              onPressed: onSave,
+              icon: const Icon(Icons.save_outlined,
+                  size: 18, color: Colors.black87),
             ),
             IconButton(
               tooltip:

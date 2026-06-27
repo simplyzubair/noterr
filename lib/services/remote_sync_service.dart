@@ -155,6 +155,7 @@ class CloudflareRemoteSyncService implements RemoteSyncService {
         'revision': note.revision,
         'device_id': deviceId,
         'deleted_at': note.deletedAt?.toIso8601String(),
+        'updated_at': note.updatedAt.toIso8601String(),
       },
     });
   }
@@ -213,8 +214,8 @@ class CloudflareRemoteSyncService implements RemoteSyncService {
   }
 
   String _syncIdFromEmail(String email) {
-    final match = RegExp(r'^vault-([a-f0-9]{40})@noterr\.local$')
-        .firstMatch(email);
+    final match =
+        RegExp(r'^vault-([a-f0-9]{40})@noterr\.local$').firstMatch(email);
     if (match == null) throw StateError('Invalid sync passphrase.');
     return match.group(1)!;
   }

@@ -1,6 +1,7 @@
 name = "noterr-sync"
 main = "noterr-sync-worker.js"
 compatibility_date = "2026-06-18"
+workers_dev = true
 
 [[d1_databases]]
 binding = "DB"

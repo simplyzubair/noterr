@@ -80,6 +80,10 @@ export default {
       const note = body.note;
       if (!note || typeof note.id !== 'string') return bad('note is required.');
       const t = nowIso();
+      const clientUpdatedAt =
+        typeof note.updated_at === 'string' && note.updated_at.length > 0
+          ? note.updated_at
+          : t;
       await env.DB.prepare(
         'insert into noterr_notes (id, sync_id, encrypted_payload, nonce, mac, payload_version, revision, device_id, deleted_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict(sync_id, id) do update set encrypted_payload = excluded.encrypted_payload, nonce = excluded.nonce, mac = excluded.mac, payload_version = excluded.payload_version, revision = excluded.revision, device_id = excluded.device_id, deleted_at = excluded.deleted_at, updated_at = excluded.updated_at where excluded.revision > noterr_notes.revision or (excluded.revision = noterr_notes.revision and excluded.updated_at > noterr_notes.updated_at)',
       )
@@ -93,10 +97,10 @@ export default {
           note.revision || 1,
           note.device_id || '',
           note.deleted_at || null,
-          t,
+          clientUpdatedAt,
         )
         .run();
-      return json({ ok: true, updatedAt: t });
+      return json({ ok: true, updatedAt: clientUpdatedAt, serverTime: t });
     }
 
     return bad('Not found.', 404);

@@ -40,11 +40,7 @@ class NoterrWidgetProvider : AppWidgetProvider() {
                 views.setInt(
                     R.id.widget_root,
                     "setBackgroundColor",
-                    parseWidgetColor(
-                        widgetData.getString("colorHex", "F2F2F2"),
-                        "#F2F2F2",
-                        widgetData.getFloat("opacity", 1f)
-                    )
+                    Color.parseColor("#F2F2F2")
                 )
                 views.setOnClickPendingIntent(R.id.widget_root, openAppIntent(context))
                 appWidgetManager.updateAppWidget(widgetId, views)
@@ -73,21 +69,6 @@ private fun styledBody(raw: String): SpannableString {
         }
     }
     return styled
-}
-
-private fun parseWidgetColor(hex: String?, fallback: String, opacity: Float): Int {
-    val normalized = hex?.trim()?.removePrefix("#") ?: fallback.removePrefix("#")
-    val color = try {
-        Color.parseColor("#$normalized")
-    } catch (_: IllegalArgumentException) {
-        Color.parseColor(fallback)
-    }
-    return Color.argb(
-        (opacity.coerceIn(0.45f, 1f) * 255).toInt(),
-        Color.red(color),
-        Color.green(color),
-        Color.blue(color)
-    )
 }
 
 private fun openAppIntent(context: Context): PendingIntent {

@@ -39,15 +39,15 @@ class WidgetPublisher {
         dailyBoard ?? (todoNotes.isEmpty ? null : todoNotes.first);
     final primarySticky =
         dailyBoard ?? (stickyNotes.isEmpty ? null : stickyNotes.first);
-    final primary = dailyBoard ??
-        (widgetNotes.isNotEmpty ? widgetNotes.first : null);
+    final primary =
+        dailyBoard ?? (widgetNotes.isNotEmpty ? widgetNotes.first : null);
 
     try {
       await _channel.invokeMethod<void>('publish', {
         'id': primary?.id,
         'title': primary?.title ?? 'Noterr',
         'body': _withQuote(_dailyBody(primary) ?? 'No active notes'),
-        'colorHex': primary?.colorHex ?? 'FFF4B8',
+        'colorHex': 'F2F2F2',
         'opacity': primary?.opacity ?? 1,
         'boardName': primary?.boardName ?? 'Personal',
         'type': primary?.type.name ?? NoteType.note.name,
@@ -112,22 +112,33 @@ class WidgetPublisher {
     final bodyParts = <String>[];
     final seenBodies = <String>{};
     final checklistByKey = <String, ChecklistItem>{};
+    final usedKeys = <String>{};
     final deletedKeys = dailyBoards
         .expand((note) => note.deletedChecklistItemKeys)
         .where((key) => key.trim().isNotEmpty)
         .toSet();
-    for (final note in dailyBoards) {
+    final baseBody = dailyBoards.first.body.trim();
+    if (baseBody.isNotEmpty) {
+      seenBodies.add(baseBody.toLowerCase());
+      bodyParts.add(baseBody);
+    }
+
+    for (final note in dailyBoards.skip(1)) {
       final body = note.body.trim();
       if (body.isNotEmpty && seenBodies.add(body.toLowerCase())) {
         bodyParts.add(body);
       }
+    }
+
+    for (final note in dailyBoards) {
       for (final item in note.checklist) {
         final text = item.text.trim();
         if (text.isEmpty) continue;
         final keys = _checklistItemKeys(item);
         if (keys.any(deletedKeys.contains)) continue;
-        final key = keys.first;
-        checklistByKey.putIfAbsent(key, () => item);
+        if (keys.any(usedKeys.contains)) continue;
+        usedKeys.addAll(keys);
+        checklistByKey[keys.first] = item;
       }
     }
 

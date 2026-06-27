@@ -16,6 +16,18 @@ if ([string]::IsNullOrWhiteSpace($SyncUrl)) {
   throw "Sync config is incomplete. Run Configure-Sync.bat first."
 }
 
+if ($SyncUrl -notmatch '^https://') {
+  throw "Sync config must be an https Worker URL. Run Configure-Sync.bat again."
+}
+
+$ParsedSyncUrl = [Uri]$SyncUrl
+if (
+  $ParsedSyncUrl.Host -eq "welcome.developers.workers.dev" -or
+  $ParsedSyncUrl.AbsolutePath -match "wrangler-oauth-consent-granted"
+) {
+  throw "Sync config points to the Cloudflare login/welcome page, not the Noterr sync Worker. Deploy the Worker, copy its workers.dev URL, then run Configure-Sync.bat again."
+}
+
 Push-Location $Project
 try {
   & $Flutter analyze

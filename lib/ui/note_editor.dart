@@ -224,9 +224,8 @@ class _NoteEditorState extends State<NoteEditor> {
   Future<void> _updateChecklistItem(ChecklistItem item, String text) async {
     await _save(
       checklist: widget.note.checklist
-          .map((current) => current.id == item.id
-              ? current.copyWith(text: text)
-              : current)
+          .map((current) =>
+              current.id == item.id ? current.copyWith(text: text) : current)
           .toList(),
       deletedChecklistItemKeys: _reviveChecklistText(
         widget.note.deletedChecklistItemKeys,
@@ -247,8 +246,9 @@ class _NoteEditorState extends State<NoteEditor> {
 
   Future<void> _removeChecklistItem(ChecklistItem item) async {
     await _save(
-      checklist:
-          widget.note.checklist.where((current) => current.id != item.id).toList(),
+      checklist: widget.note.checklist
+          .where((current) => current.id != item.id)
+          .toList(),
       deletedChecklistItemKeys: _deletedChecklistKeys(widget.note, [item]),
     );
   }
@@ -564,10 +564,13 @@ class _EditorToolbar extends StatelessWidget {
             IconButton(
               tooltip: note.isPinned ? 'Unpin' : 'Pin',
               onPressed: onPinned,
-              icon: Icon(note.isPinned ? Icons.push_pin : Icons.push_pin_outlined),
+              icon: Icon(
+                  note.isPinned ? Icons.push_pin : Icons.push_pin_outlined),
             ),
             IconButton(
-              tooltip: note.isAlwaysOnTop ? 'Disable always on top' : 'Always on top',
+              tooltip: note.isAlwaysOnTop
+                  ? 'Disable always on top'
+                  : 'Always on top',
               onPressed: onAlwaysOnTop,
               icon: Icon(
                 note.isAlwaysOnTop

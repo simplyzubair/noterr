@@ -541,6 +541,11 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
             title: const Text('Noterr'),
             actions: [
               IconButton(
+                tooltip: 'Save and sync',
+                onPressed: _saveNow,
+                icon: const Icon(Icons.save_outlined),
+              ),
+              IconButton(
                 tooltip: 'History',
                 onPressed: _openHistory,
                 icon: const Icon(Icons.history),
@@ -585,6 +590,14 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
           ),
         );
       },
+    );
+  }
+
+  Future<void> _saveNow() async {
+    await widget.controller.saveNow();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Saved and synced')),
     );
   }
 }

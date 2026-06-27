@@ -125,8 +125,8 @@ class NoterrWidgetSyncService : Service() {
             .edit()
             .putString("title", selected.optString("title", "Today"))
             .putString("body", dailyBody(selected))
-            .putString("colorHex", selected.optString("colorHex", "F2F2F2"))
-            .putFloat("opacity", selected.optDouble("opacity", 1.0).toFloat())
+            .putString("colorHex", "F2F2F2")
+            .putFloat("opacity", 1f)
             .apply()
 
         updateHomeWidgets()
@@ -142,7 +142,12 @@ class NoterrWidgetSyncService : Service() {
         val checklistByKey = linkedMapOf<String, JSONObject>()
         val deletedKeys = linkedSetOf<String>()
 
-        for (note in notes) {
+        val baseBody = notes.first().optString("body").trim()
+        if (baseBody.isNotEmpty() && seenBodies.add(baseBody.lowercase())) {
+            bodyParts.add(baseBody)
+        }
+
+        for (note in notes.drop(1)) {
             val deleted = note.optJSONArray("deletedChecklistItemKeys") ?: JSONArray()
             for (index in 0 until deleted.length()) {
                 val key = deleted.optString(index).trim()
@@ -151,6 +156,14 @@ class NoterrWidgetSyncService : Service() {
             val body = note.optString("body").trim()
             if (body.isNotEmpty() && seenBodies.add(body.lowercase())) {
                 bodyParts.add(body)
+            }
+        }
+
+        for (note in notes) {
+            val deleted = note.optJSONArray("deletedChecklistItemKeys") ?: JSONArray()
+            for (index in 0 until deleted.length()) {
+                val key = deleted.optString(index).trim()
+                if (key.isNotEmpty()) deletedKeys.add(key)
             }
             val checklist = note.optJSONArray("checklist") ?: JSONArray()
             for (index in 0 until checklist.length()) {

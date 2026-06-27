@@ -85,8 +85,7 @@ class ChecklistItem {
         text: text ?? this.text,
         done: done ?? this.done,
         isFocus: isFocus ?? this.isFocus,
-        carriedFrom:
-            clearCarriedFrom ? null : carriedFrom ?? this.carriedFrom,
+        carriedFrom: clearCarriedFrom ? null : carriedFrom ?? this.carriedFrom,
         reminderAt: clearReminder ? null : reminderAt ?? this.reminderAt,
         reminderDone: reminderDone ?? this.reminderDone,
       );
