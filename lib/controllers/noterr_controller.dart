@@ -75,6 +75,7 @@ class NoterrController extends ChangeNotifier {
   final WidgetPublisher _widgetPublisher;
 
   final List<Note> _notes = [];
+  final Set<String> _dirtyNoteIds = {};
   SecretKey? _key;
   StreamSubscription<RemoteNoteEnvelope>? _remoteSub;
   Timer? _syncTimer;
@@ -652,7 +653,10 @@ class NoterrController extends ChangeNotifier {
     }
     _startDailyTimer();
     await _localVault.savePassphrase(passphrase);
-    await _widgetPublisher.configureLiveWidgetSync(passphrase);
+    await _widgetPublisher.configureLiveWidgetSync(
+      passphrase,
+      vaultSalt: _activeVaultSalt,
+    );
     await _publishWidget();
     if (hasCloud) {
       unawaited(_finishCloudUnlock(passphrase));
@@ -666,6 +670,10 @@ class NoterrController extends ChangeNotifier {
       await _remote.openSyncProfile(passphrase, vaultSalt: fallbackSalt);
       final salt = await _remote.getOrCreateVaultSalt();
       await _localVault.saveCachedVaultSalt(salt);
+      await _widgetPublisher.configureLiveWidgetSync(
+        passphrase,
+        vaultSalt: salt,
+      );
       if (_activeVaultSalt != salt) {
         await _openLocalVault(
           passphrase,
@@ -695,7 +703,7 @@ class NoterrController extends ChangeNotifier {
   void _startSyncTimer() {
     _syncTimer?.cancel();
     if (!hasCloud || _key == null) return;
-    _syncTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+    _syncTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       if (_syncState == SyncState.syncing) return;
       unawaited(syncNow());
     });
@@ -786,13 +794,21 @@ class NoterrController extends ChangeNotifier {
     if (!hasCloud || key == null) return;
     _setSync(SyncState.syncing);
     try {
-      final remoteNotes = await _remote.pullNotes(key);
+      final since = _lastPulledAt?.subtract(const Duration(seconds: 5));
+      final remoteNotes = await _remote.pullNotes(key, since: since);
       _lastPulledCount = remoteNotes.length;
       _merge(remoteNotes);
       await _rollDailyBoardIfNeeded();
+      final shouldBackfillCloud = remoteNotes.isEmpty &&
+          _lastPulledAt == null &&
+          _notes.any((note) => !note.isDeleted);
+      final notesToPush = shouldBackfillCloud
+          ? _notes
+          : _notes.where((note) => _dirtyNoteIds.contains(note.id)).toList();
       var pushed = 0;
-      for (final note in _notes) {
+      for (final note in notesToPush) {
         await _remote.pushNote(note, key, _deviceId);
+        _dirtyNoteIds.remove(note.id);
         pushed++;
       }
       _lastPushedCount = pushed;
@@ -852,10 +868,12 @@ class NoterrController extends ChangeNotifier {
     try {
       _setSync(SyncState.syncing);
       await _remote.pushNote(note, _key!, _deviceId);
+      _dirtyNoteIds.remove(note.id);
       _lastPushAt = DateTime.now().toUtc();
       _lastPushedCount = 1;
       _setSync(SyncState.idle);
     } catch (error) {
+      _dirtyNoteIds.add(note.id);
       _setError(error.toString());
     }
   }

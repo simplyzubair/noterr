@@ -68,11 +68,16 @@ export default {
     if (!profile) return bad('Unknown sync profile.', 404);
 
     if (url.pathname === '/pull') {
-      const rows = await env.DB.prepare(
-        'select id, encrypted_payload, nonce, mac, payload_version, revision, device_id, deleted_at, updated_at from noterr_notes where sync_id = ? order by updated_at desc',
-      )
-        .bind(syncId)
-        .all();
+      const since = typeof body.since === 'string' ? body.since : '';
+      const query =
+        since.length > 0
+          ? env.DB.prepare(
+              'select id, encrypted_payload, nonce, mac, payload_version, revision, device_id, deleted_at, updated_at from noterr_notes where sync_id = ? and updated_at > ? order by updated_at desc',
+            ).bind(syncId, since)
+          : env.DB.prepare(
+              'select id, encrypted_payload, nonce, mac, payload_version, revision, device_id, deleted_at, updated_at from noterr_notes where sync_id = ? order by updated_at desc',
+            ).bind(syncId);
+      const rows = await query.all();
       return json({ notes: rows.results || [], serverTime: nowIso() });
     }
 

@@ -7,12 +7,16 @@ import 'daily_quote.dart';
 class WidgetPublisher {
   static const _channel = MethodChannel('noterr/widget');
 
-  Future<void> configureLiveWidgetSync(String passphrase) async {
+  Future<void> configureLiveWidgetSync(
+    String passphrase, {
+    String? vaultSalt,
+  }) async {
     if (!AppConfig.hasCloudSync) return;
     try {
       await _channel.invokeMethod<void>('configureLiveWidgetSync', {
         'syncUrl': AppConfig.syncUrl,
         'passphrase': passphrase,
+        'vaultSalt': vaultSalt,
       });
     } catch (_) {
       // Foreground widget sync is Android-only.

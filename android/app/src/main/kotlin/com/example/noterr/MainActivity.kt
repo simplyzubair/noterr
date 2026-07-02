@@ -22,6 +22,7 @@ class MainActivity : FlutterActivity() {
                     .edit()
                     .putString("sync_url", call.argument<String>("syncUrl") ?: "")
                     .putString("passphrase", call.argument<String>("passphrase") ?: "")
+                    .putString("vault_salt", call.argument<String>("vaultSalt") ?: "")
                     .apply()
                 try {
                     val intent = Intent(this, NoterrWidgetSyncService::class.java)

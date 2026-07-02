@@ -52,9 +52,9 @@ class NoterrWidgetSyncService : Service() {
             executor = Executors.newSingleThreadScheduledExecutor()
             executor?.scheduleWithFixedDelay(
                 { refreshWidgetSafely() },
-                1,
-                10,
-                TimeUnit.SECONDS
+                15,
+                3,
+                TimeUnit.MINUTES
             )
         }
         return START_STICKY
@@ -83,12 +83,18 @@ class NoterrWidgetSyncService : Service() {
         if (syncUrl.isEmpty() || passphrase.isEmpty()) return
 
         val syncId = syncId(passphrase)
-        val auth = postJson(
-            "$syncUrl/profile",
-            JSONObject()
-                .put("syncId", syncId)
-        )
-        val salt = auth.optString("vaultSalt")
+        var salt = prefs.getString("vault_salt", "")?.trim().orEmpty()
+        if (salt.isEmpty()) {
+            val auth = postJson(
+                "$syncUrl/profile",
+                JSONObject()
+                    .put("syncId", syncId)
+            )
+            salt = auth.optString("vaultSalt")
+            if (salt.isNotEmpty()) {
+                prefs.edit().putString("vault_salt", salt).apply()
+            }
+        }
         if (salt.isEmpty()) return
         val vaultKey = deriveVaultKey(passphrase, salt)
 

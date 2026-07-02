@@ -51,7 +51,7 @@ abstract class RemoteSyncService {
   Future<void> openSyncProfile(String passphrase, {required String vaultSalt});
   Future<void> closeSyncProfile();
   Future<String> getOrCreateVaultSalt();
-  Future<List<Note>> pullNotes(SecretKey key);
+  Future<List<Note>> pullNotes(SecretKey key, {DateTime? since});
   Future<void> pushNote(Note note, SecretKey key, String deviceId);
   Stream<RemoteNoteEnvelope> watchNoteEnvelopes();
 }
@@ -80,7 +80,8 @@ class NoopRemoteSyncService implements RemoteSyncService {
   }
 
   @override
-  Future<List<Note>> pullNotes(SecretKey key) async => const [];
+  Future<List<Note>> pullNotes(SecretKey key, {DateTime? since}) async =>
+      const [];
 
   @override
   Future<void> pushNote(Note note, SecretKey key, String deviceId) async {}
@@ -134,9 +135,12 @@ class CloudflareRemoteSyncService implements RemoteSyncService {
   }
 
   @override
-  Future<List<Note>> pullNotes(SecretKey key) async {
+  Future<List<Note>> pullNotes(SecretKey key, {DateTime? since}) async {
     final syncId = _requireSyncId();
-    final response = await _post('/pull', {'syncId': syncId});
+    final response = await _post('/pull', {
+      'syncId': syncId,
+      if (since != null) 'since': since.toUtc().toIso8601String(),
+    });
     return _decodeNotes(response, key);
   }
 
