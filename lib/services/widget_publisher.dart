@@ -121,15 +121,22 @@ class WidgetPublisher {
         .expand((note) => note.deletedChecklistItemKeys)
         .where((key) => key.trim().isNotEmpty)
         .toSet();
+    final bodyClearedAt = dailyBoards
+        .map((note) => note.bodyClearedAt)
+        .whereType<DateTime>()
+        .fold<DateTime?>(null, _latestDate);
     final baseBody = dailyBoards.first.body.trim();
-    if (baseBody.isNotEmpty) {
+    if (baseBody.isNotEmpty &&
+        !_wasBodyClearedAfter(dailyBoards.first, bodyClearedAt)) {
       seenBodies.add(baseBody.toLowerCase());
       bodyParts.add(baseBody);
     }
 
     for (final note in dailyBoards.skip(1)) {
       final body = note.body.trim();
-      if (body.isNotEmpty && seenBodies.add(body.toLowerCase())) {
+      if (body.isNotEmpty &&
+          !_wasBodyClearedAfter(note, bodyClearedAt) &&
+          seenBodies.add(body.toLowerCase())) {
         bodyParts.add(body);
       }
     }
@@ -152,7 +159,19 @@ class WidgetPublisher {
       body: bodyParts.join('\n\n'),
       checklist: checklistByKey.values.toList(),
       deletedChecklistItemKeys: deletedKeys.toList(),
+      bodyClearedAt: bodyClearedAt,
     );
+  }
+
+  bool _wasBodyClearedAfter(Note note, DateTime? marker) {
+    if (marker == null) return false;
+    return !note.updatedAt.isAfter(marker);
+  }
+
+  DateTime? _latestDate(DateTime? current, DateTime? candidate) {
+    if (current == null) return candidate;
+    if (candidate == null) return current;
+    return candidate.isAfter(current) ? candidate : current;
   }
 
   List<String> _checklistItemKeys(ChecklistItem item) {

@@ -147,9 +147,17 @@ class NoterrWidgetSyncService : Service() {
         val bodyParts = mutableListOf<String>()
         val checklistByKey = linkedMapOf<String, JSONObject>()
         val deletedKeys = linkedSetOf<String>()
+        val bodyClearedAt = notes
+            .map { it.optString("bodyClearedAt").trim() }
+            .filter { it.isNotEmpty() }
+            .maxOrNull()
 
         val baseBody = notes.first().optString("body").trim()
-        if (baseBody.isNotEmpty() && seenBodies.add(baseBody.lowercase())) {
+        if (
+            baseBody.isNotEmpty() &&
+            !wasBodyClearedAfter(notes.first(), bodyClearedAt) &&
+            seenBodies.add(baseBody.lowercase())
+        ) {
             bodyParts.add(baseBody)
         }
 
@@ -160,7 +168,11 @@ class NoterrWidgetSyncService : Service() {
                 if (key.isNotEmpty()) deletedKeys.add(key)
             }
             val body = note.optString("body").trim()
-            if (body.isNotEmpty() && seenBodies.add(body.lowercase())) {
+            if (
+                body.isNotEmpty() &&
+                !wasBodyClearedAfter(note, bodyClearedAt) &&
+                seenBodies.add(body.lowercase())
+            ) {
                 bodyParts.add(body)
             }
         }
@@ -187,6 +199,13 @@ class NoterrWidgetSyncService : Service() {
         checklistByKey.values.forEach { mergedChecklist.put(it) }
         base.put("checklist", mergedChecklist)
         return base
+    }
+
+    private fun wasBodyClearedAfter(note: JSONObject, marker: String?): Boolean {
+        if (marker.isNullOrEmpty()) return false
+        val updatedAt = note.optString("updatedAt").trim()
+        if (updatedAt.isEmpty()) return false
+        return updatedAt <= marker
     }
 
     private fun checklistItemKeys(item: JSONObject): List<String> {

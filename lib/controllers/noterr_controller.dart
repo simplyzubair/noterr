@@ -740,10 +740,16 @@ class NoterrController extends ChangeNotifier {
   }
 
   Future<void> updateNote(Note note) async {
+    final current = _findNote(note.id);
+    final bodyWasCleared = current != null &&
+        current.body.trim().isNotEmpty &&
+        note.body.trim().isEmpty &&
+        note.supportsBody;
     final changed = note.copyWith(
       updatedAt: DateTime.now().toUtc(),
       revision: note.revision + 1,
       deviceId: _deviceId,
+      bodyClearedAt: bodyWasCleared ? DateTime.now().toUtc() : null,
     );
     _replace(changed);
     await _persistAndPush(changed);
@@ -932,6 +938,7 @@ class NoterrController extends ChangeNotifier {
       body: body,
       checklist: checklist,
       deletedChecklistItemKeys: deletedKeys.toList(),
+      bodyClearedAt: _latestDate(winner.bodyClearedAt, other.bodyClearedAt),
       isPinned: true,
       popOnDesktop: true,
       showOnMobileWidget: true,
@@ -959,9 +966,13 @@ class NoterrController extends ChangeNotifier {
 
     final carryTasks = <ChecklistItem>[];
     final carryBodies = <String>[];
+    DateTime? bodyClearedAt;
     for (final board in staleBoards) {
+      bodyClearedAt = _latestDate(bodyClearedAt, board.bodyClearedAt);
       final body = board.body.trim();
-      if (body.isNotEmpty) carryBodies.add(body);
+      if (body.isNotEmpty && !_wasBodyClearedAfter(board, bodyClearedAt)) {
+        carryBodies.add(body);
+      }
       carryTasks.addAll(
         board.checklist
             .where(
@@ -984,7 +995,8 @@ class NoterrController extends ChangeNotifier {
     }
     if (staleBoards.isEmpty && todayTodoNote == null) {
       carryTasks.addAll(_missedCarryTasksFromLatestHistory(now));
-      final body = _missedCarryBodyFromLatestHistory(now);
+      bodyClearedAt = _latestDate(bodyClearedAt, _latestBodyClearedAt());
+      final body = _missedCarryBodyFromLatestHistory(now, bodyClearedAt);
       if (body != null) carryBodies.add(body);
     }
 
@@ -1015,6 +1027,7 @@ class NoterrController extends ChangeNotifier {
           today.copyWith(
             body: mergedBody,
             checklist: mergedTasks,
+            bodyClearedAt: bodyClearedAt,
           ),
         ),
       );
@@ -1060,12 +1073,16 @@ class NoterrController extends ChangeNotifier {
         .toList();
   }
 
-  String? _missedCarryBodyFromLatestHistory(DateTime now) {
+  String? _missedCarryBodyFromLatestHistory(
+    DateTime now,
+    DateTime? bodyClearedAt,
+  ) {
     final latestHistory = _notes.where((note) {
       return !note.isDeleted &&
           note.isArchived &&
           note.boardName == 'History' &&
           note.supportsBody &&
+          !_wasBodyClearedAfter(note, bodyClearedAt) &&
           note.createdAt.toLocal().isBefore(DateTime(
                 now.year,
                 now.month,
@@ -1091,11 +1108,17 @@ class NoterrController extends ChangeNotifier {
     boards.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     final keeper = boards.first;
     final duplicateBoards = boards.skip(1).toList();
+    final bodyClearedAt = boards
+        .map((note) => note.bodyClearedAt)
+        .whereType<DateTime>()
+        .fold<DateTime?>(null, _latestDate);
     final body = keeper.body.trim().isEmpty
         ? ''
         : _mergeBodyParts([
             keeper.body,
-            ...duplicateBoards.map((note) => note.body),
+            ...duplicateBoards
+                .where((note) => !_wasBodyClearedAfter(note, bodyClearedAt))
+                .map((note) => note.body),
           ]);
     final checklistByKey = <String, ChecklistItem>{};
     final usedKeys = <String>{};
@@ -1121,6 +1144,7 @@ class NoterrController extends ChangeNotifier {
           body: body,
           checklist: checklistByKey.values.toList(),
           deletedChecklistItemKeys: deletedKeys.toList(),
+          bodyClearedAt: bodyClearedAt,
           isPinned: true,
           popOnDesktop: true,
           showOnMobileWidget: true,
@@ -1229,6 +1253,34 @@ class NoterrController extends ChangeNotifier {
     final key = 'text:${text.trim().toLowerCase()}';
     if (key == 'text:') return deletedKeys;
     return deletedKeys.where((deletedKey) => deletedKey != key).toList();
+  }
+
+  bool _wasBodyClearedAfter(Note note, DateTime? marker) {
+    if (marker == null) return false;
+    final bodyTime = note.updatedAt.isAfter(note.createdAt)
+        ? note.updatedAt
+        : note.createdAt;
+    return !bodyTime.isAfter(marker);
+  }
+
+  DateTime? _latestBodyClearedAt() {
+    return _notes
+        .map((note) => note.bodyClearedAt)
+        .whereType<DateTime>()
+        .fold<DateTime?>(null, _latestDate);
+  }
+
+  DateTime? _latestDate(DateTime? current, DateTime? candidate) {
+    if (current == null) return candidate;
+    if (candidate == null) return current;
+    return candidate.isAfter(current) ? candidate : current;
+  }
+
+  Note? _findNote(String id) {
+    for (final note in _notes) {
+      if (note.id == id) return note;
+    }
+    return null;
   }
 
   Note _newTodayBoard(DateTime now) {

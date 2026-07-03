@@ -204,6 +204,7 @@ class Note {
     this.tags = const [],
     this.checklist = const [],
     this.deletedChecklistItemKeys = const [],
+    this.bodyClearedAt,
     this.attachments = const [],
     this.reminder = const NoteReminder(dueAt: null),
     this.bounds,
@@ -265,6 +266,9 @@ class Note {
               .map((key) => key.trim())
               .where((key) => key.isNotEmpty)
               .toList(),
+      bodyClearedAt: json['bodyClearedAt'] == null
+          ? null
+          : DateTime.tryParse(json['bodyClearedAt'] as String)?.toUtc(),
       attachments: ((json['attachments'] as List?) ?? const [])
           .whereType<Map>()
           .map((item) =>
@@ -304,6 +308,7 @@ class Note {
   final List<String> tags;
   final List<ChecklistItem> checklist;
   final List<String> deletedChecklistItemKeys;
+  final DateTime? bodyClearedAt;
   final List<NoteAttachment> attachments;
   final NoteReminder reminder;
   final StickyBounds? bounds;
@@ -354,6 +359,8 @@ class Note {
     List<String>? tags,
     List<ChecklistItem>? checklist,
     List<String>? deletedChecklistItemKeys,
+    DateTime? bodyClearedAt,
+    bool clearBodyClearedAt = false,
     List<NoteAttachment>? attachments,
     NoteReminder? reminder,
     StickyBounds? bounds,
@@ -381,6 +388,8 @@ class Note {
       checklist: checklist ?? this.checklist,
       deletedChecklistItemKeys:
           deletedChecklistItemKeys ?? this.deletedChecklistItemKeys,
+      bodyClearedAt:
+          clearBodyClearedAt ? null : bodyClearedAt ?? this.bodyClearedAt,
       attachments: attachments ?? this.attachments,
       reminder: reminder ?? this.reminder,
       bounds: bounds ?? this.bounds,
@@ -409,6 +418,7 @@ class Note {
         'tags': tags,
         'checklist': checklist.map((item) => item.toJson()).toList(),
         'deletedChecklistItemKeys': deletedChecklistItemKeys,
+        'bodyClearedAt': bodyClearedAt?.toIso8601String(),
         'attachments': attachments.map((item) => item.toJson()).toList(),
         'reminder': reminder.toJson(),
         'bounds': bounds?.toJson(),
