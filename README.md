@@ -10,6 +10,10 @@ Noterr now uses Cloudflare:
 - Cloudflare D1: encrypted database storage.
 - The app encrypts notes before upload. The Worker never sees plaintext.
 
+The old Supabase project/schema is legacy only. The current Windows and
+Android builds do not depend on hosted Supabase, so the hosted Supabase project
+can pause without breaking Noterr sync.
+
 ## Setup
 
 1. Deploy the sync Worker:
@@ -37,3 +41,8 @@ Noterr now uses Cloudflare:
 - Android APK: `C:\tmp\NoterrBuild\build\app\outputs\flutter-apk\app-release.apk`
 - Worker source: `cloudflare/noterr-sync-worker.js`
 - D1 schema: `cloudflare/schema.sql`
+
+## Supabase Notes
+
+- Legacy Supabase schema: `supabase/schema.sql`
+- Future Supabase/Codex setup notes: `docs/SUPABASE.md`

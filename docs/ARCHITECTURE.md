@@ -2,6 +2,9 @@
 
 Noterr is a Flutter app for Windows and Android. It is local-first and syncs through a Cloudflare Worker backed by Cloudflare D1.
 
+Supabase was used during an earlier sync experiment. The current app does not
+read from or write to Supabase.
+
 ## Data Model
 
 - Notes are stored locally in an encrypted vault.
@@ -17,6 +20,12 @@ Cloudflare D1 tables:
 - `noterr_notes`: encrypted payload, nonce, MAC, revision, device id, and timestamps.
 
 The Worker has no access to plaintext notes. It only upserts and returns encrypted blobs.
+
+## Legacy Supabase
+
+`supabase/schema.sql` is kept only as a historical reference. Do not apply it
+for the current Noterr app unless the backend is intentionally redesigned back
+to Supabase.
 
 ## Local Behavior
 
