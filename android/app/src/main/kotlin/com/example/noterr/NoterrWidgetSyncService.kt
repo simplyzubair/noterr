@@ -237,9 +237,6 @@ class NoterrWidgetSyncService : Service() {
     }
 
     private fun dailyBody(note: JSONObject): String {
-        val parts = mutableListOf<String>()
-        val body = note.optString("body").trim()
-        if (body.isNotEmpty()) parts.add(body)
         val checklist = note.optJSONArray("checklist") ?: JSONArray()
         val taskLines = mutableListOf<String>()
         for (index in 0 until checklist.length()) {
@@ -256,12 +253,33 @@ class NoterrWidgetSyncService : Service() {
                 }
             )
         }
-        if (taskLines.isNotEmpty()) parts.add(taskLines.joinToString("\n"))
-        val content = if (parts.isEmpty()) "No notes or tasks yet" else parts.joinToString("\n\n")
+        val content = if (taskLines.isEmpty()) "No tasks yet" else taskLines.joinToString("\n")
         return "${dailyQuote()}\n\n$content"
     }
 
     private fun dailyQuote(): String {
+        val ayahs = listOf(
+            "Quran 94:5 - With hardship comes ease.",
+            "Quran 2:153 - Seek help through patience and prayer.",
+            "Quran 14:7 - Gratitude opens the door to increase.",
+            "Quran 53:39 - A person gains from what they strive for.",
+            "Quran 13:11 - Change begins with what is within you.",
+            "Quran 3:159 - Decide, then trust Allah.",
+            "Quran 65:3 - Trust Allah; He is enough.",
+            "Quran 39:10 - The patient are rewarded beyond measure.",
+            "Quran 11:88 - Success is only through Allah.",
+            "Quran 29:69 - Strive sincerely; guidance opens.",
+            "Quran 103:3 - Faith, good work, truth, and patience.",
+            "Quran 16:127 - Be patient; your patience is from Allah.",
+            "Quran 20:114 - Ask for increase in knowledge.",
+            "Quran 17:84 - Work according to your way; improve it.",
+            "Quran 23:1 - Focus and humility lead to success.",
+            "Quran 24:38 - Allah rewards the best of your actions.",
+            "Quran 67:15 - Walk the earth and seek provision.",
+            "Quran 73:8 - Remember your Lord and devote yourself.",
+            "Quran 76:9 - Serve with sincerity, not applause.",
+            "Quran 87:8 - The right path can be made easy."
+        )
         val quotes = listOf(
             "Focus on the next right action.",
             "Small steps, done daily, become momentum.",
@@ -293,26 +311,6 @@ class NoterrWidgetSyncService : Service() {
             "Less distraction, more devotion.",
             "Move with patience and purpose.",
             "The most important task deserves the quietest mind.",
-            "Quran 94:5 - With hardship comes ease; keep moving.",
-            "Quran 2:153 - Seek help through patience and prayer.",
-            "Quran 14:7 - Gratitude opens the door to increase.",
-            "Quran 53:39 - You gain from what you strive for.",
-            "Quran 13:11 - Change begins with what is within you.",
-            "Quran 3:159 - Decide, then trust Allah.",
-            "Quran 65:3 - Trust Allah; He is enough.",
-            "Quran 39:10 - The patient are rewarded beyond measure.",
-            "Quran 11:88 - Success is only through Allah.",
-            "Quran 29:69 - Strive sincerely; guidance opens.",
-            "Quran 103:3 - Faith, good work, truth, and patience.",
-            "Quran 16:127 - Be patient; your patience is from Allah.",
-            "Quran 20:114 - Ask for increase in knowledge.",
-            "Quran 17:84 - Work according to your way; improve it.",
-            "Quran 23:1 - Focus and humility lead to success.",
-            "Quran 24:38 - Allah rewards the best of your actions.",
-            "Quran 67:15 - Walk the earth and seek provision.",
-            "Quran 73:8 - Remember your Lord and devote yourself.",
-            "Quran 76:9 - Serve with sincerity, not applause.",
-            "Quran 87:8 - The right path can be made easy.",
             "Sabr is strength under control.",
             "Shukr turns today's work into worship.",
             "Make effort, then leave the outcome to Allah.",
@@ -330,7 +328,7 @@ class NoterrWidgetSyncService : Service() {
         calendar.set(Calendar.SECOND, 0)
         calendar.set(Calendar.MILLISECOND, 0)
         val day = calendar.timeInMillis / 86_400_000L
-        return quotes[(day % quotes.size).toInt()]
+        return "${ayahs[(day % ayahs.size).toInt()]}\n${quotes[(day % quotes.size).toInt()]}"
     }
 
     private fun syncId(passphrase: String): String {

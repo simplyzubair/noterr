@@ -1,6 +1,29 @@
 class DailyQuote {
   const DailyQuote._();
 
+  static const _ayahs = [
+    'Quran 94:5 - With hardship comes ease.',
+    'Quran 2:153 - Seek help through patience and prayer.',
+    'Quran 14:7 - Gratitude opens the door to increase.',
+    'Quran 53:39 - A person gains from what they strive for.',
+    'Quran 13:11 - Change begins with what is within you.',
+    'Quran 3:159 - Decide, then trust Allah.',
+    'Quran 65:3 - Trust Allah; He is enough.',
+    'Quran 39:10 - The patient are rewarded beyond measure.',
+    'Quran 11:88 - Success is only through Allah.',
+    'Quran 29:69 - Strive sincerely; guidance opens.',
+    'Quran 103:3 - Faith, good work, truth, and patience.',
+    'Quran 16:127 - Be patient; your patience is from Allah.',
+    'Quran 20:114 - Ask for increase in knowledge.',
+    'Quran 17:84 - Work according to your way; improve it.',
+    'Quran 23:1 - Focus and humility lead to success.',
+    'Quran 24:38 - Allah rewards the best of your actions.',
+    'Quran 67:15 - Walk the earth and seek provision.',
+    'Quran 73:8 - Remember your Lord and devote yourself.',
+    'Quran 76:9 - Serve with sincerity, not applause.',
+    'Quran 87:8 - The right path can be made easy.',
+  ];
+
   static const _quotes = [
     'Focus on the next right action.',
     'Small steps, done daily, become momentum.',
@@ -32,26 +55,6 @@ class DailyQuote {
     'Less distraction, more devotion.',
     'Move with patience and purpose.',
     'The most important task deserves the quietest mind.',
-    'Quran 94:5 - With hardship comes ease; keep moving.',
-    'Quran 2:153 - Seek help through patience and prayer.',
-    'Quran 14:7 - Gratitude opens the door to increase.',
-    'Quran 53:39 - You gain from what you strive for.',
-    'Quran 13:11 - Change begins with what is within you.',
-    'Quran 3:159 - Decide, then trust Allah.',
-    'Quran 65:3 - Trust Allah; He is enough.',
-    'Quran 39:10 - The patient are rewarded beyond measure.',
-    'Quran 11:88 - Success is only through Allah.',
-    'Quran 29:69 - Strive sincerely; guidance opens.',
-    'Quran 103:3 - Faith, good work, truth, and patience.',
-    'Quran 16:127 - Be patient; your patience is from Allah.',
-    'Quran 20:114 - Ask for increase in knowledge.',
-    'Quran 17:84 - Work according to your way; improve it.',
-    'Quran 23:1 - Focus and humility lead to success.',
-    'Quran 24:38 - Allah rewards the best of your actions.',
-    'Quran 67:15 - Walk the earth and seek provision.',
-    'Quran 73:8 - Remember your Lord and devote yourself.',
-    'Quran 76:9 - Serve with sincerity, not applause.',
-    'Quran 87:8 - The right path can be made easy.',
     'Sabr is strength under control.',
     'Shukr turns today\'s work into worship.',
     'Make effort, then leave the outcome to Allah.',
@@ -68,6 +71,7 @@ class DailyQuote {
     final date = value ?? DateTime.now();
     final localDay = DateTime(date.year, date.month, date.day);
     final days = localDay.difference(DateTime(2024)).inDays;
-    return _quotes[days.abs() % _quotes.length];
+    final index = days.abs();
+    return '${_ayahs[index % _ayahs.length]}\n${_quotes[index % _quotes.length]}';
   }
 }

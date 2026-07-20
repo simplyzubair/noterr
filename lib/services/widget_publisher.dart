@@ -50,7 +50,7 @@ class WidgetPublisher {
       await _channel.invokeMethod<void>('publish', {
         'id': primary?.id,
         'title': primary?.title ?? 'Noterr',
-        'body': _withQuote(_dailyBody(primary) ?? 'No active notes'),
+        'body': _withQuote(_todoBody(primaryTodo ?? primary)),
         'colorHex': 'F2F2F2',
         'opacity': primary?.opacity ?? 1,
         'boardName': primary?.boardName ?? 'Personal',
@@ -190,24 +190,6 @@ class WidgetPublisher {
     final regular = pending.where((item) => !item.isFocus).toList();
     final ordered = [...focus, ...regular];
     return ordered.map(_taskLine).join('\n');
-  }
-
-  String? _dailyBody(Note? note) {
-    if (note == null) return null;
-    final parts = <String>[];
-    final body = note.body.trim();
-    if (body.isNotEmpty) parts.add(body);
-    if (note.supportsChecklist) {
-      final taskLines = note.checklist
-          .where((item) => item.text.trim().isNotEmpty)
-          .map((item) => item.done ? '[x] ${item.text}' : _taskLine(item))
-          .toList();
-      if (taskLines.isNotEmpty) {
-        parts.add(taskLines.join('\n'));
-      }
-    }
-    if (parts.isEmpty) return 'No notes or tasks yet';
-    return parts.join('\n\n');
   }
 
   String _taskLine(ChecklistItem item) {
