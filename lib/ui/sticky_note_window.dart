@@ -472,11 +472,11 @@ class _StickyQuoteStrip extends StatelessWidget {
         Expanded(
           child: Text(
             quote,
-            maxLines: 2,
+            maxLines: 4,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: Colors.black54,
-              fontSize: 12,
+              fontSize: 11,
               fontWeight: FontWeight.w600,
             ),
           ),
