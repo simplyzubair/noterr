@@ -47,6 +47,7 @@ class MainActivity : FlutterActivity() {
             prefs.edit()
                 .putString("title", call.argument<String>("title") ?: "Noterr")
                 .putString("body", call.argument<String>("body") ?: "No notes or tasks yet")
+                .putString("tasks_body", call.argument<String>("todoBody") ?: "No tasks yet")
                 .putString("colorHex", "F2F2F2")
                 .putFloat("opacity", 1.0f)
                 .putString("todo_title", call.argument<String>("todoTitle") ?: "Today To Do")
