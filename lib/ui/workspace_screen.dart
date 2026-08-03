@@ -14,6 +14,7 @@ import '../services/daily_quote.dart';
 import '../services/startup_service.dart';
 import '../services/sticky_window_service.dart';
 import 'note_colors.dart';
+import 'plans_screen.dart';
 
 class WorkspaceScreen extends StatefulWidget {
   const WorkspaceScreen({
@@ -81,6 +82,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
           items: [
             MenuItem(key: 'quick_task', label: 'Quick add task'),
             MenuItem(key: 'quick_note', label: 'Quick add note'),
+            MenuItem(key: 'plans', label: 'Plans'),
             MenuItem.separator(),
             MenuItem(key: 'template_work', label: 'Template: Work day'),
             MenuItem(key: 'template_calls', label: 'Template: Calls'),
@@ -138,6 +140,8 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
         unawaited(_openQuickAdd(isTask: true));
       case 'quick_note':
         unawaited(_openQuickAdd(isTask: false));
+      case 'plans':
+        unawaited(_openPlans());
       case 'template_work':
         unawaited(widget.controller.applyTemplate('work'));
       case 'template_calls':
@@ -299,6 +303,31 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
         builder: (_) => _HistoryScreen(controller: widget.controller),
       ),
     );
+  }
+
+  Future<void> _openPlans() async {
+    if (_isDesktop) await _showFromTray();
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => PlansScreen(controller: widget.controller),
+      ),
+    );
+  }
+
+  void _openMore(String value) {
+    switch (value) {
+      case 'plans':
+        unawaited(_openPlans());
+      case 'history':
+        _openHistory();
+      case 'review':
+        _openDailyReview();
+      case 'templates':
+        _openTemplates();
+      case 'settings':
+        _openSettings();
+    }
   }
 
   void _openDailyReview() {
@@ -545,27 +574,48 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                 onPressed: _saveNow,
                 icon: const Icon(Icons.save_outlined),
               ),
-              IconButton(
-                tooltip: 'History',
-                onPressed: _openHistory,
-                icon: const Icon(Icons.history),
+              PopupMenuButton<String>(
+                tooltip: 'More',
+                onSelected: _openMore,
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                    value: 'plans',
+                    child: ListTile(
+                      leading: Icon(Icons.event_note_outlined),
+                      title: Text('Plans'),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'history',
+                    child: ListTile(
+                      leading: Icon(Icons.history),
+                      title: Text('History'),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'review',
+                    child: ListTile(
+                      leading: Icon(Icons.fact_check_outlined),
+                      title: Text('Daily review'),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'templates',
+                    child: ListTile(
+                      leading: Icon(Icons.dashboard_customize_outlined),
+                      title: Text('Templates'),
+                    ),
+                  ),
+                  if (_isDesktop)
+                    const PopupMenuItem(
+                      value: 'settings',
+                      child: ListTile(
+                        leading: Icon(Icons.settings_outlined),
+                        title: Text('Settings'),
+                      ),
+                    ),
+                ],
               ),
-              IconButton(
-                tooltip: 'Daily review',
-                onPressed: _openDailyReview,
-                icon: const Icon(Icons.fact_check_outlined),
-              ),
-              IconButton(
-                tooltip: 'Templates',
-                onPressed: _openTemplates,
-                icon: const Icon(Icons.dashboard_customize_outlined),
-              ),
-              if (_isDesktop)
-                IconButton(
-                  tooltip: 'Settings',
-                  onPressed: _openSettings,
-                  icon: const Icon(Icons.settings_outlined),
-                ),
               IconButton(
                 tooltip: 'Lock notes',
                 onPressed: widget.controller.lock,
@@ -800,6 +850,8 @@ class _ItemEditorState extends State<_ItemEditor> {
                       (item) => _ChecklistRow(
                         key: ValueKey(item.id),
                         item: item,
+                        planTitle:
+                            widget.controller.planById(item.planId)?.title,
                         focusNode: _focusNodeFor(item),
                         onToggle: () => widget.controller.toggleChecklistItem(
                           note,
@@ -1017,6 +1069,7 @@ class _ChecklistRow extends StatefulWidget {
   const _ChecklistRow({
     super.key,
     required this.item,
+    required this.planTitle,
     required this.focusNode,
     required this.onToggle,
     required this.onText,
@@ -1027,6 +1080,7 @@ class _ChecklistRow extends StatefulWidget {
   });
 
   final ChecklistItem item;
+  final String? planTitle;
   final FocusNode focusNode;
   final VoidCallback onToggle;
   final ValueChanged<String> onText;
@@ -1126,6 +1180,8 @@ class _ChecklistRowState extends State<_ChecklistRow> {
                   runSpacing: 4,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
+                    if (widget.planTitle != null)
+                      _PlanTaskMeta(widget.planTitle!),
                     _TinyTaskAction(
                       icon: widget.item.isFocus
                           ? Icons.flag
@@ -1153,6 +1209,41 @@ class _ChecklistRowState extends State<_ChecklistRow> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PlanTaskMeta extends StatelessWidget {
+  const _PlanTaskMeta(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'From $title',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.event_note_outlined,
+            size: 13,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(width: 3),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 120),
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+            ),
+          ),
+        ],
       ),
     );
   }

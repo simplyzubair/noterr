@@ -31,7 +31,7 @@ if (
 Push-Location $Project
 try {
   & $Flutter analyze
-  & $Flutter test test\widget_test.dart test\sticky_window_payload_test.dart
+  & $Flutter test
   & $Flutter build windows --release --dart-define="NOTERR_SYNC_URL=$SyncUrl"
   & $Flutter build apk --release --target-platform android-arm64 --dart-define="NOTERR_SYNC_URL=$SyncUrl"
 

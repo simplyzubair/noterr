@@ -20,6 +20,9 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -104,37 +107,42 @@ class NoterrWidgetSyncService : Service() {
         val rows = pull.optJSONArray("notes") ?: JSONArray()
 
         val todayNotes = mutableListOf<JSONObject>()
+        val planNotes = mutableListOf<JSONObject>()
         for (index in 0 until rows.length()) {
             val row = rows.getJSONObject(index)
             val note = decryptNote(row, vaultKey)
             if (note.optBoolean("isDeleted", false)) continue
+            if (note.optString("boardName") == "Plans" && isPlanNote(note)) {
+                planNotes.add(note)
+                continue
+            }
             if (note.optBoolean("isArchived", false)) continue
             if (note.optString("boardName") != "Today") continue
             if (!note.optBoolean("showOnMobileWidget", true)) continue
             todayNotes.add(note)
         }
         val selected = unifiedTodayNote(todayNotes)
-        if (selected == null) {
-            getSharedPreferences("noterr_widget", Context.MODE_PRIVATE)
-                .edit()
-                .putString("title", "Noterr")
-                .putString("tasks_body", "No tasks yet")
-                .putString("colorHex", "F2F2F2")
-                .putFloat("opacity", 1f)
-                .apply()
-            updateHomeWidgets()
-            return
-        }
+        val todayLabel = SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(
+            Calendar.getInstance().time
+        )
 
         getSharedPreferences("noterr_widget", Context.MODE_PRIVATE)
             .edit()
-            .putString("title", selected.optString("title", "Today"))
-            .putString("tasks_body", taskBody(selected))
+            .putString("title", selected?.optString("title", todayLabel) ?: todayLabel)
+            .putString("tasks_body", taskBody(selected, planNotes))
             .putString("colorHex", "F2F2F2")
             .putFloat("opacity", 1f)
             .apply()
 
         updateHomeWidgets()
+    }
+
+    private fun isPlanNote(note: JSONObject): Boolean {
+        val tags = note.optJSONArray("tags") ?: return false
+        for (index in 0 until tags.length()) {
+            if (tags.optString(index) == "noterr-plan-v1") return true
+        }
+        return false
     }
 
     private fun unifiedTodayNote(notes: List<JSONObject>): JSONObject? {
@@ -235,24 +243,121 @@ class NoterrWidgetSyncService : Service() {
         return JSONObject(String(cipher.doFinal(combined), Charsets.UTF_8))
     }
 
-    private fun taskBody(note: JSONObject): String {
-        val checklist = note.optJSONArray("checklist") ?: JSONArray()
+    private fun taskBody(note: JSONObject?, planNotes: List<JSONObject>): String {
         val taskLines = mutableListOf<String>()
-        for (index in 0 until checklist.length()) {
-            val item = checklist.getJSONObject(index)
-            val text = item.optString("text").trim()
-            if (text.isEmpty()) continue
-            taskLines.add(
-                if (item.optBoolean("done", false)) {
-                    "[x] $text"
-                } else if (item.optBoolean("isFocus", false)) {
-                    "NOW: $text"
-                } else {
-                    "- $text"
+        val seenTexts = linkedSetOf<String>()
+        val existingPlanItems = linkedSetOf<String>()
+        val deletedKeys = linkedSetOf<String>()
+        if (note != null) {
+            val deleted = note.optJSONArray("deletedChecklistItemKeys") ?: JSONArray()
+            for (index in 0 until deleted.length()) {
+                val key = deleted.optString(index).trim()
+                if (key.isNotEmpty()) deletedKeys.add(key)
+            }
+            val checklist = note.optJSONArray("checklist") ?: JSONArray()
+            for (index in 0 until checklist.length()) {
+                val item = checklist.getJSONObject(index)
+                val text = item.optString("text").trim()
+                if (text.isEmpty()) continue
+                seenTexts.add(text.lowercase())
+                val planId = item.optString("planId").trim()
+                val planItemId = item.optString("planItemId").trim()
+                if (planId.isNotEmpty() && planItemId.isNotEmpty()) {
+                    existingPlanItems.add("$planId:$planItemId")
                 }
-            )
+                taskLines.add(
+                    if (item.optBoolean("done", false)) {
+                        "[x] $text"
+                    } else if (item.optBoolean("isFocus", false)) {
+                        "NOW: $text"
+                    } else {
+                        "- $text"
+                    }
+                )
+            }
+        }
+
+        val calendar = Calendar.getInstance()
+        val todayIso = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(calendar.time)
+        val todayCompact = SimpleDateFormat("yyyyMMdd", Locale.US).format(calendar.time)
+        val weekday = ((calendar.get(Calendar.DAY_OF_WEEK) + 5) % 7) + 1
+        for (planNote in planNotes) {
+            val plan = runCatching {
+                JSONObject(planNote.optString("body"))
+            }.getOrNull() ?: continue
+            if (!plan.optBoolean("isActive", true)) continue
+            val startDate = plan.optString("startDate")
+            val endDate = plan.optString("endDate")
+            if (startDate.isEmpty() || endDate.isEmpty()) continue
+            if (todayIso < startDate || todayIso > endDate) continue
+            val planId = plan.optString("id").trim()
+            if (planId.isEmpty()) continue
+            val items = plan.optJSONArray("items") ?: JSONArray()
+            for (index in 0 until items.length()) {
+                val item = items.optJSONObject(index) ?: continue
+                val kind = item.optString("kind")
+                if (kind != "task" && kind != "habit") continue
+                if (!isPlanItemDue(item, todayIso, weekday, calendar)) continue
+                val text = item.optString("text").trim()
+                val itemId = item.optString("id").trim()
+                if (text.isEmpty() || itemId.isEmpty()) continue
+                val planItemKey = "$planId:$itemId"
+                val occurrenceId = "plan:$planId:$itemId:$todayCompact"
+                if (existingPlanItems.contains(planItemKey)) continue
+                if (deletedKeys.contains("id:$occurrenceId")) continue
+                if (!seenTexts.add(text.lowercase())) continue
+                taskLines.add("- $text")
+            }
         }
         return if (taskLines.isEmpty()) "No tasks yet" else taskLines.joinToString("\n")
+    }
+
+    private fun isPlanItemDue(
+        item: JSONObject,
+        todayIso: String,
+        weekday: Int,
+        calendar: Calendar
+    ): Boolean {
+        val cadence = item.optString("cadence", "once")
+        val scheduledDate = item.optString("scheduledDate").trim()
+        val weekdays = item.optJSONArray("weekdays") ?: JSONArray()
+        fun includesToday(): Boolean {
+            for (index in 0 until weekdays.length()) {
+                if (weekdays.optInt(index) == weekday) return true
+            }
+            return false
+        }
+        return when (cadence) {
+            "daily" -> weekdays.length() == 0 || includesToday()
+            "weekly" -> {
+                if (weekdays.length() > 0) {
+                    includesToday()
+                } else {
+                    scheduledDate.isNotEmpty() &&
+                        weekdayForDate(scheduledDate) == weekday
+                }
+            }
+            "monthly" -> {
+                val anchorDay = scheduledDate.substringAfterLast('-').toIntOrNull()
+                    ?: return false
+                val targetDay = minOf(
+                    anchorDay,
+                    calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
+                )
+                calendar.get(Calendar.DAY_OF_MONTH) == targetDay
+            }
+            else -> scheduledDate == todayIso
+        }
+    }
+
+    private fun weekdayForDate(value: String): Int? {
+        val parsed = runCatching {
+            SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+                isLenient = false
+            }.parse(value)
+        }.getOrNull() ?: return null
+        val calendar = Calendar.getInstance().apply { time = parsed }
+        return ((calendar.get(Calendar.DAY_OF_WEEK) + 5) % 7) + 1
     }
 
     private fun syncId(passphrase: String): String {

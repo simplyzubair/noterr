@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 
 import '../models/note.dart';
+import '../models/plan.dart';
 import '../services/local_vault.dart';
 import '../services/remote_sync_service.dart';
 import '../services/vault_crypto.dart';
@@ -13,8 +14,12 @@ import '../services/widget_publisher.dart';
 
 enum SyncState { offline, idle, syncing, error }
 
+enum PlanOccurrenceStatus { upcoming, today, completed, missed }
+
 const _templateBoardName = 'System';
 const _templateNoteTitle = '__noterr_templates_v1';
+const _planBoardName = 'Plans';
+const _planTag = 'noterr-plan-v1';
 const Map<String, List<String>> _defaultTemplates = {
   'work': [
     'Choose today\'s one priority',
@@ -106,6 +111,84 @@ class NoterrController extends ChangeNotifier {
 
   List<Note> get notes => List.unmodifiable(_notes);
 
+  List<Plan> get plans {
+    final values = <Plan>[];
+    for (final note in _notes) {
+      if (note.isDeleted ||
+          note.boardName != _planBoardName ||
+          !note.tags.contains(_planTag)) {
+        continue;
+      }
+      try {
+        values.add(
+          Plan.fromJson(
+            Map<String, dynamic>.from(jsonDecode(note.body) as Map),
+          ),
+        );
+      } catch (_) {
+        // Keep a malformed imported plan from affecting the daily board.
+      }
+    }
+    values.sort((a, b) {
+      if (a.isActive != b.isActive) return a.isActive ? -1 : 1;
+      return b.updatedAt.compareTo(a.updatedAt);
+    });
+    return List.unmodifiable(values);
+  }
+
+  List<PlanOccurrence> planOccurrences(
+    DateTime start,
+    DateTime end, {
+    bool activeOnly = true,
+  }) {
+    final first = dateOnly(start);
+    final last = dateOnly(end);
+    if (last.isBefore(first)) return const [];
+    final result = <PlanOccurrence>[];
+    for (final plan in plans) {
+      if (activeOnly && !plan.isActive) continue;
+      var date = first;
+      while (!date.isAfter(last)) {
+        for (final item in plan.itemsFor(date)) {
+          result.add(PlanOccurrence(plan: plan, item: item, date: date));
+        }
+        date = date.add(const Duration(days: 1));
+      }
+    }
+    result.sort((a, b) {
+      final dateOrder = a.date.compareTo(b.date);
+      if (dateOrder != 0) return dateOrder;
+      return a.item.text.toLowerCase().compareTo(b.item.text.toLowerCase());
+    });
+    return result;
+  }
+
+  PlanOccurrenceStatus planOccurrenceStatus(PlanOccurrence occurrence) {
+    final matchingItems = _notes
+        .where((note) => !note.isDeleted)
+        .expand((note) => note.checklist)
+        .where((item) {
+      return item.planId == occurrence.plan.id &&
+          item.planItemId == occurrence.item.id &&
+          item.scheduledFor != null &&
+          isSamePlanDate(item.scheduledFor!, occurrence.date);
+    });
+    if (matchingItems.any((item) => item.done)) {
+      return PlanOccurrenceStatus.completed;
+    }
+    final today = dateOnly(DateTime.now());
+    if (occurrence.date.isBefore(today)) return PlanOccurrenceStatus.missed;
+    if (isSamePlanDate(occurrence.date, today)) {
+      return PlanOccurrenceStatus.today;
+    }
+    return PlanOccurrenceStatus.upcoming;
+  }
+
+  Plan? planById(String? id) {
+    if (id == null) return null;
+    return plans.where((plan) => plan.id == id).firstOrNull;
+  }
+
   Map<String, List<String>> get templates {
     final saved = _templateNote;
     if (saved == null || saved.body.trim().isEmpty) {
@@ -138,6 +221,84 @@ class NoterrController extends ChangeNotifier {
       }
     }
     return null;
+  }
+
+  Note? _planNoteById(String id) {
+    for (final note in _notes) {
+      if (note.isDeleted ||
+          note.boardName != _planBoardName ||
+          !note.tags.contains(_planTag)) {
+        continue;
+      }
+      try {
+        final plan = Plan.fromJson(
+          Map<String, dynamic>.from(jsonDecode(note.body) as Map),
+        );
+        if (plan.id == id) return note;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  Future<void> savePlan(Plan value) async {
+    final plan = value.copyWith(updatedAt: DateTime.now().toUtc());
+    final encoded = const JsonEncoder.withIndent('  ').convert(plan.toJson());
+    final existing = _planNoteById(plan.id);
+    if (existing == null) {
+      final note = Note.blank(_deviceId, type: NoteType.note).copyWith(
+        title: plan.title,
+        body: encoded,
+        boardName: _planBoardName,
+        tags: [_planTag, 'plan:${plan.id}'],
+        isArchived: true,
+        isPinned: false,
+        popOnDesktop: false,
+        showOnMobileWidget: false,
+      );
+      _notes.add(note);
+      await _persistAndPush(note);
+    } else {
+      await updateNote(
+        existing.copyWith(
+          title: plan.title,
+          body: encoded,
+          tags: [_planTag, 'plan:${plan.id}'],
+          isArchived: true,
+          popOnDesktop: false,
+          showOnMobileWidget: false,
+        ),
+      );
+    }
+    await _materializePlanItemsForToday();
+  }
+
+  Future<void> setPlanActive(Plan plan, bool active) async {
+    await savePlan(plan.copyWith(isActive: active));
+    if (!active) await _removePendingPlanTasksFromToday(plan.id);
+  }
+
+  Future<void> deletePlan(Plan plan) async {
+    final note = _planNoteById(plan.id);
+    if (note == null) return;
+    await _removePendingPlanTasksFromToday(plan.id);
+    await softDeleteNote(note);
+  }
+
+  Future<void> _removePendingPlanTasksFromToday(String planId) async {
+    final today = todayTodoNote;
+    if (today == null) return;
+    final pending = today.checklist
+        .where((item) => item.planId == planId && !item.done)
+        .toList();
+    if (pending.isEmpty) return;
+    await updateNote(
+      today.copyWith(
+        checklist: today.checklist
+            .where((item) => item.planId != planId || item.done)
+            .toList(),
+        deletedChecklistItemKeys: _deletedChecklistKeys(today, pending),
+      ),
+    );
   }
 
   List<Note> visibleNotes({
@@ -243,21 +404,108 @@ class NoterrController extends ChangeNotifier {
 
   Future<Note> ensureTodayTodoNote() async {
     await _rollDailyBoardIfNeeded();
-    final existing = todayTodoNote;
+    var note = todayTodoNote;
     final now = DateTime.now();
     final title = _dailyTitle(now);
-    if (existing != null) {
-      if (existing.title != title) {
-        final updated = _touch(existing.copyWith(title: title));
+    if (note != null) {
+      if (note.title != title) {
+        final updated = _touch(note.copyWith(title: title));
         await _persistAndPush(updated);
-        return updated;
+        note = updated;
       }
-      return existing;
+    } else {
+      note = _newTodayBoard(now);
+      _notes.add(note);
+      await _persistAndPush(note);
     }
-    final note = _newTodayBoard(now);
-    _notes.add(note);
-    await _persistAndPush(note);
-    return note;
+    return _materializePlanItems(note, now);
+  }
+
+  Future<void> _materializePlanItemsForToday() async {
+    await ensureTodayTodoNote();
+  }
+
+  Future<Note> _materializePlanItems(Note note, DateTime value) async {
+    final date = dateOnly(value);
+    final activePlans = plans.where(
+      (plan) => plan.isActive && plan.isInRange(date),
+    );
+    final occurrences = <PlanOccurrence>[
+      for (final plan in activePlans)
+        for (final item in plan.itemsFor(date))
+          PlanOccurrence(plan: plan, item: item, date: date),
+    ];
+    if (occurrences.isEmpty) return note;
+
+    final checklist = [...note.checklist];
+    final existingIds = checklist.map((item) => item.id).toSet();
+    final existingTexts = checklist
+        .where((item) => !item.done)
+        .map((item) => item.text.trim().toLowerCase())
+        .where((text) => text.isNotEmpty)
+        .toSet();
+    final deletedIds = note.deletedChecklistItemKeys
+        .where((key) => key.startsWith('id:'))
+        .map((key) => key.substring(3))
+        .toSet();
+    var changed = false;
+    for (final occurrence in occurrences) {
+      final id = occurrence.id;
+      final text = occurrence.item.text.trim();
+      final carriedIndex = checklist.indexWhere((item) {
+        return !item.done &&
+            item.planId == occurrence.plan.id &&
+            item.planItemId == occurrence.item.id;
+      });
+      if (carriedIndex != -1) {
+        final current = checklist[carriedIndex];
+        if (!existingIds.contains(id) &&
+            !deletedIds.contains(id) &&
+            (current.scheduledFor == null ||
+                !isSamePlanDate(current.scheduledFor!, date))) {
+          checklist[carriedIndex] = ChecklistItem(
+            id: id,
+            text: current.text,
+            done: current.done,
+            isFocus: current.isFocus,
+            carriedFrom: current.carriedFrom,
+            reminderAt: current.reminderAt,
+            reminderDone: current.reminderDone,
+            planId: occurrence.plan.id,
+            planItemId: occurrence.item.id,
+            scheduledFor: date,
+          );
+          existingIds
+            ..remove(current.id)
+            ..add(id);
+          changed = true;
+        }
+        continue;
+      }
+      if (text.isEmpty ||
+          existingIds.contains(id) ||
+          deletedIds.contains(id) ||
+          existingTexts.contains(text.toLowerCase())) {
+        continue;
+      }
+      checklist.add(
+        ChecklistItem(
+          id: id,
+          text: text,
+          planId: occurrence.plan.id,
+          planItemId: occurrence.item.id,
+          scheduledFor: date,
+        ),
+      );
+      existingIds.add(id);
+      existingTexts.add(text.toLowerCase());
+      changed = true;
+    }
+    if (!changed) return note;
+
+    final updated = _touch(note.copyWith(checklist: checklist));
+    await _persistAndPush(updated);
+    return updated;
   }
 
   Future<void> addTodayNote(String text) async {
@@ -805,6 +1053,7 @@ class NoterrController extends ChangeNotifier {
       _lastPulledCount = remoteNotes.length;
       _merge(remoteNotes);
       await _rollDailyBoardIfNeeded();
+      await _materializePlanItemsForToday();
       final shouldBackfillCloud = remoteNotes.isEmpty &&
           _lastPulledAt == null &&
           _notes.any((note) => !note.isDeleted);
@@ -855,6 +1104,7 @@ class NoterrController extends ChangeNotifier {
         final note = Note.fromJson(json);
         _merge([note]);
         await _rollDailyBoardIfNeeded();
+        await _materializePlanItemsForToday();
         _lastRemoteEventAt = DateTime.now().toUtc();
         await _saveLocal();
         await _publishWidget();
@@ -1019,6 +1269,9 @@ class NoterrController extends ChangeNotifier {
                 carriedFrom: item.carriedFrom ?? now,
                 reminderAt: item.reminderAt,
                 isFocus: item.isFocus,
+                planId: item.planId,
+                planItemId: item.planItemId,
+                scheduledFor: item.scheduledFor,
               ),
             ),
       ];

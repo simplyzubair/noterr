@@ -2,6 +2,33 @@
 
 Noterr is a local-first sticky note and daily task app for Windows and Android.
 
+## Plan Import
+
+Plans stay behind the **More > Plans** area. Paste a structured plan or choose
+a `.txt`/`.md` file, select its start and end dates, review the classification
+and schedule, then activate it. Due tasks and habits appear in the existing
+Today board, desktop sticky, and Android widget.
+
+~~~text
+Plan: August Health
+
+Outcomes:
+- Lose 1 kg
+
+Daily:
+- Walk 1 km Monday to Saturday
+
+Weekly:
+- Record weight every Sunday
+
+Tasks:
+- Buy walking shoes
+~~~
+
+Noterr classifies outcomes, projects, tasks, and habits but does not invent
+goals. One-time tasks without dates are spread across the selected range.
+Everything is shown for approval before activation.
+
 ## Sync
 
 Noterr now uses Cloudflare:

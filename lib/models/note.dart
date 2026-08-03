@@ -46,6 +46,9 @@ class ChecklistItem {
     this.carriedFrom,
     this.reminderAt,
     this.reminderDone = false,
+    this.planId,
+    this.planItemId,
+    this.scheduledFor,
   }) : id = id ?? _uuid.v4();
 
   factory ChecklistItem.fromJson(Map<String, dynamic> json) => ChecklistItem(
@@ -60,6 +63,11 @@ class ChecklistItem {
             ? null
             : DateTime.tryParse(json['reminderAt'] as String)?.toUtc(),
         reminderDone: json['reminderDone'] as bool? ?? false,
+        planId: json['planId'] as String?,
+        planItemId: json['planItemId'] as String?,
+        scheduledFor: json['scheduledFor'] == null
+            ? null
+            : DateTime.tryParse(json['scheduledFor'] as String),
       );
 
   final String id;
@@ -69,6 +77,11 @@ class ChecklistItem {
   final DateTime? carriedFrom;
   final DateTime? reminderAt;
   final bool reminderDone;
+  final String? planId;
+  final String? planItemId;
+  final DateTime? scheduledFor;
+
+  bool get isFromPlan => planId != null && planItemId != null;
 
   ChecklistItem copyWith({
     String? text,
@@ -79,6 +92,9 @@ class ChecklistItem {
     DateTime? reminderAt,
     bool clearReminder = false,
     bool? reminderDone,
+    String? planId,
+    String? planItemId,
+    DateTime? scheduledFor,
   }) =>
       ChecklistItem(
         id: id,
@@ -88,6 +104,9 @@ class ChecklistItem {
         carriedFrom: clearCarriedFrom ? null : carriedFrom ?? this.carriedFrom,
         reminderAt: clearReminder ? null : reminderAt ?? this.reminderAt,
         reminderDone: reminderDone ?? this.reminderDone,
+        planId: planId ?? this.planId,
+        planItemId: planItemId ?? this.planItemId,
+        scheduledFor: scheduledFor ?? this.scheduledFor,
       );
 
   Map<String, dynamic> toJson() => {
@@ -98,6 +117,9 @@ class ChecklistItem {
         'carriedFrom': carriedFrom?.toIso8601String(),
         'reminderAt': reminderAt?.toIso8601String(),
         'reminderDone': reminderDone,
+        'planId': planId,
+        'planItemId': planItemId,
+        'scheduledFor': scheduledFor?.toIso8601String(),
       };
 }
 
