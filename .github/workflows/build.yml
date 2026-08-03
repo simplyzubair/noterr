@@ -34,7 +34,7 @@ jobs:
         run: flutter analyze
 
       - name: Test
-        run: flutter test test/widget_test.dart test/sticky_window_payload_test.dart
+        run: flutter test
 
       - name: Build split release APKs
         run: >
@@ -70,7 +70,7 @@ jobs:
         run: flutter analyze
 
       - name: Test
-        run: flutter test test/widget_test.dart test/sticky_window_payload_test.dart
+        run: flutter test
 
       - name: Build Windows release
         run: >
