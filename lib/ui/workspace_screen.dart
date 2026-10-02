@@ -1919,7 +1919,7 @@ extension _FirstOrNull<T> on Iterable<T> {
 // ── Update banner ────────────────────────────────────────────────────────────
 
 class _UpdateBanner extends StatefulWidget {
-  const _UpdateBanner({required this.info, required this.onDismiss});
+  const _UpdateBanner({super.key, required this.info, required this.onDismiss});
 
   final UpdateInfo info;
   final VoidCallback onDismiss;
