@@ -2,11 +2,11 @@ name: Build and Release Noterr
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     tags:
       - 'v*'            # triggers a GitHub Release when you push v0.2.0, v0.3.0, etc.
   pull_request:
-    branches: [main]
+    branches: [master]
   workflow_dispatch:
 
 jobs:

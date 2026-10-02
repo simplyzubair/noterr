@@ -404,6 +404,7 @@ class _StickyNoteWindowState extends State<StickyNoteWindow>
                                   shrinkWrap: true,
                                   physics: const NeverScrollableScrollPhysics(),
                                   buildDefaultDragHandles: false,
+                                  // ignore: deprecated_member_use
                                   onReorder: _reorderChecklistItems,
                                   children: [
                                     for (int i = 0;
