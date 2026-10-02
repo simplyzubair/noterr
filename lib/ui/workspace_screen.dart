@@ -1918,11 +1918,18 @@ extension _FirstOrNull<T> on Iterable<T> {
 
 // ── Update banner ────────────────────────────────────────────────────────────
 
-class _UpdateBanner extends StatelessWidget {
+class _UpdateBanner extends StatefulWidget {
   const _UpdateBanner({required this.info, required this.onDismiss});
 
   final UpdateInfo info;
   final VoidCallback onDismiss;
+
+  @override
+  State<_UpdateBanner> createState() => _UpdateBannerState();
+}
+
+class _UpdateBannerState extends State<_UpdateBanner> {
+  bool _isDownloading = false;
 
   @override
   Widget build(BuildContext context) {
@@ -1937,7 +1944,9 @@ class _UpdateBanner extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Noterr ${info.latestVersion} is available. Download to update.',
+                _isDownloading
+                    ? 'Downloading Noterr ${widget.info.latestVersion} in background...'
+                    : 'Noterr ${widget.info.latestVersion} is available. Click to auto-update.',
                 style: TextStyle(
                   color: scheme.onPrimaryContainer,
                   fontSize: 13,
@@ -1946,22 +1955,32 @@ class _UpdateBanner extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            TextButton(
-              style: TextButton.styleFrom(
-                foregroundColor: scheme.onPrimaryContainer,
-                backgroundColor: scheme.primary.withValues(alpha: 0.15),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            if (_isDownloading)
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: scheme.onPrimaryContainer,
+                  backgroundColor: scheme.primary.withValues(alpha: 0.15),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                ),
+                onPressed: () async {
+                  setState(() => _isDownloading = true);
+                  await UpdateService.downloadAndInstallUpdate(widget.info);
+                  if (mounted) {
+                    setState(() => _isDownloading = false);
+                  }
+                },
+                child: const Text('Update Now', style: TextStyle(fontSize: 13)),
               ),
-              onPressed: () => launchUrl(
-                Uri.parse(info.downloadUrl),
-                mode: LaunchMode.externalApplication,
-              ),
-              child: const Text('Download', style: TextStyle(fontSize: 13)),
-            ),
             const SizedBox(width: 4),
             IconButton(
               icon: Icon(Icons.close, size: 18, color: scheme.onPrimaryContainer),
-              onPressed: onDismiss,
+              onPressed: _isDownloading ? null : widget.onDismiss,
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             ),

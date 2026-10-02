@@ -1,7 +1,9 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 
 /// The version baked in at build time via --dart-define=NOTERR_APP_VERSION
 const _currentVersion = String.fromEnvironment(
@@ -116,6 +118,33 @@ class UpdateService {
     }
 
     return null;
+  }
+
+  /// Downloads and silently installs the update for Windows, or prompts for Android.
+  static Future<void> downloadAndInstallUpdate(UpdateInfo info) async {
+    try {
+      final response = await http.get(Uri.parse(info.downloadUrl));
+      if (response.statusCode != 200) return;
+
+      final tempDir = await getTemporaryDirectory();
+
+      if (Platform.isWindows) {
+        final filePath = '${tempDir.path}\\noterr_update_${info.latestVersion}.exe';
+        final file = File(filePath);
+        await file.writeAsBytes(response.bodyBytes);
+        // Execute the installer silently and force close this running instance
+        await Process.start(filePath, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/FORCECLOSEAPPLICATIONS']);
+        exit(0);
+      } else if (Platform.isAndroid) {
+        final filePath = '${tempDir.path}/noterr_update_${info.latestVersion}.apk';
+        final file = File(filePath);
+        await file.writeAsBytes(response.bodyBytes);
+        // Ask the OS to open/install the APK
+        await OpenFilex.open(filePath);
+      }
+    } catch (_) {
+      // Fallback or ignore
+    }
   }
 
   static String get currentVersion => _currentVersion;
