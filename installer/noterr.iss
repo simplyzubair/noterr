@@ -1,5 +1,5 @@
 #define MyAppName "Noterr"
-#define MyAppVersion "0.2.0"
+#define MyAppVersion "0.3.3"
 #define MyAppPublisher "Noterr"
 #define MyAppExeName "noterr.exe"
 

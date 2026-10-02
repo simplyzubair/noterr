@@ -2,7 +2,7 @@ name: noterr
 description: Local-first sticky notes for Windows and Android with encrypted sync.
 publish_to: "none"
 
-version: 0.2.0+2
+version: 0.3.3+3
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
