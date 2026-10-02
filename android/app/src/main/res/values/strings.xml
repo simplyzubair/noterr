@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Noterr</string>
+    <string name="noterr_widget_description">Today notes and tasks from Noterr</string>
+</resources>
