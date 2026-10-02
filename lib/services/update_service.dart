@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
-import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// The version baked in at build time via --dart-define=NOTERR_APP_VERSION
 const _currentVersion = String.fromEnvironment(
@@ -136,11 +136,12 @@ class UpdateService {
         await Process.start(filePath, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/FORCECLOSEAPPLICATIONS']);
         exit(0);
       } else if (Platform.isAndroid) {
-        final filePath = '${tempDir.path}/noterr_update_${info.latestVersion}.apk';
-        final file = File(filePath);
-        await file.writeAsBytes(response.bodyBytes);
-        // Ask the OS to open/install the APK
-        await OpenFilex.open(filePath);
+        // Since background APK installs require complex native code, 
+        // fallback to browser download on Android which natively handles it.
+        await launchUrl(
+          Uri.parse(info.downloadUrl),
+          mode: LaunchMode.externalApplication,
+        );
       }
     } catch (_) {
       // Fallback or ignore
