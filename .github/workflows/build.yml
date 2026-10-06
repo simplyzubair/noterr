@@ -57,11 +57,28 @@ jobs:
             echo "::error::Missing repository secret(s):$missing. Without all four the APK would be signed with a throwaway debug key and could not install over an existing install."
             exit 1
           fi
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > android/noterr-release-key.jks
-          if ! keytool -list -keystore android/noterr-release-key.jks                  -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
-            echo "::error::Keystore did not open. ANDROID_KEYSTORE_BASE64 may be corrupt, or ANDROID_STORE_PASSWORD / ANDROID_KEY_ALIAS do not match the key."
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > android/noterr-release-key.jks 2>/dev/null || true
+          size=$(wc -c < android/noterr-release-key.jks)
+          echo "decoded keystore size: $size bytes (expected 2254)"
+          if [ "$size" -lt 100 ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 did not decode to a keystore (got $size bytes). Re-copy it with the PowerShell command and paste the whole value."
             exit 1
           fi
+          # Stage 1: does the store password alone open the keystore?
+          if keytool -list -keystore android/noterr-release-key.jks -storepass "$STORE_PASSWORD" >/dev/null 2>&1; then
+            echo "store password: OK"
+          else
+            echo "::error::ANDROID_STORE_PASSWORD does not open the keystore (or the decoded file is corrupt). Re-enter that secret."
+            exit 1
+          fi
+          # Stage 2: does the alias exist? List alias names so a typo is visible.
+          echo "aliases present in keystore:"
+          keytool -list -keystore android/noterr-release-key.jks -storepass "$STORE_PASSWORD"             | grep -i "PrivateKeyEntry" || true
+          if ! keytool -list -keystore android/noterr-release-key.jks -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo "::error::ANDROID_KEY_ALIAS does not match any alias above. It must be the alias printed in the list."
+            exit 1
+          fi
+          echo "alias: OK"
           {
             echo "storeFile=noterr-release-key.jks"
             echo "storePassword=$STORE_PASSWORD"
