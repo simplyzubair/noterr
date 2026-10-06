@@ -48,11 +48,20 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::ANDROID_KEYSTORE_BASE64 is unset. Without it the APK would be signed with a throwaway debug key and could not install over an existing install."
+          missing=""
+          for v in KEYSTORE_BASE64 STORE_PASSWORD KEY_PASSWORD KEY_ALIAS; do
+            eval "val=\$$v"
+            if [ -z "$val" ]; then missing="$missing ANDROID_$v"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing. Without all four the APK would be signed with a throwaway debug key and could not install over an existing install."
             exit 1
           fi
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > android/noterr-release-key.jks
+          if ! keytool -list -keystore android/noterr-release-key.jks                  -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo "::error::Keystore did not open. ANDROID_KEYSTORE_BASE64 may be corrupt, or ANDROID_STORE_PASSWORD / ANDROID_KEY_ALIAS do not match the key."
+            exit 1
+          fi
           {
             echo "storeFile=noterr-release-key.jks"
             echo "storePassword=$STORE_PASSWORD"
