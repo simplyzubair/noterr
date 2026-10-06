@@ -93,10 +93,21 @@ jobs:
           echo "app_version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build split release APKs
-        run: >
-          flutter build apk --release --split-per-abi
-          --dart-define=NOTERR_SYNC_URL="${{ secrets.NOTERR_SYNC_URL }}"
-          --dart-define=NOTERR_APP_VERSION="${{ steps.version.outputs.app_version }}"
+        env:
+          SYNC_URL: ${{ secrets.NOTERR_SYNC_URL }}
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+        run: |
+          set +e
+          flutter build apk --release --split-per-abi             --dart-define=NOTERR_SYNC_URL="$SYNC_URL"             --dart-define=NOTERR_APP_VERSION="$APP_VERSION" 2>&1 | tee build-apk.log
+          code=${PIPESTATUS[0]}
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "Gradle build failed; last 60 lines follow as annotations."
+            tail -n 60 build-apk.log | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            exit "$code"
+          fi
 
       - name: Rename arm64 APK for release
         run: |
