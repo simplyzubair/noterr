@@ -79,6 +79,14 @@ jobs:
             exit 1
           fi
           echo "alias: OK"
+          # -list only proves the STORE password. Gradle also needs the KEY
+          # password, and a wrong one fails late with "Cannot recover key".
+          # -keypasswd to the same value verifies it without changing anything.
+          if ! keytool -keypasswd -keystore android/noterr-release-key.jks -alias "$KEY_ALIAS" -storepass "$STORE_PASSWORD" -keypass "$KEY_PASSWORD" -new "$KEY_PASSWORD" >/dev/null 2>&1; then
+            echo "::error::ANDROID_KEY_PASSWORD is wrong for alias $KEY_ALIAS (store password is fine). For this keystore it is the same value as ANDROID_STORE_PASSWORD; re-enter it with no trailing space."
+            exit 1
+          fi
+          echo "key password: OK\"
           {
             echo "storeFile=noterr-release-key.jks"
             echo "storePassword=$STORE_PASSWORD"
