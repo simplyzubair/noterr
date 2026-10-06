@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, exit;
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
@@ -8,10 +8,20 @@ import 'package:window_manager/window_manager.dart';
 import 'app/app_config.dart';
 import 'app/noterr_app.dart';
 import 'models/note.dart';
+import 'services/local_vault.dart';
+import 'services/vault_doctor.dart';
 import 'ui/sticky_note_window.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Support path for a vault that rejects every passphrase. Prints which
+  // stored salt opens it and exits; no secret or note content is written out.
+  if (args.contains('--vault-doctor')) {
+    await VaultDoctor.run(LocalVault(profile: AppConfig.dataProfile));
+    exit(0);
+  }
+
   final showEditor = args.contains('--show-editor');
   final startHidden = args.contains('--start-hidden') || !showEditor;
 

@@ -892,8 +892,18 @@ class NoterrController extends ChangeNotifier {
       return;
     }
 
+    // A vault first written by a build that had cloud sync was encrypted with
+    // the salt cached from the server, not the local one. Such a vault opens
+    // only with that cached salt, so try it before giving up, otherwise every
+    // passphrase looks wrong here.
     final salt = await _localVault.getOrCreateLocalSalt();
-    await _openLocalVault(cleanPassphrase, salt);
+    try {
+      await _openLocalVault(cleanPassphrase, salt);
+    } catch (_) {
+      final cachedSalt = await _localVault.readCachedVaultSalt();
+      if (cachedSalt == null || cachedSalt == salt) rethrow;
+      await _openLocalVault(cleanPassphrase, cachedSalt);
+    }
     await _finishUnlock(cleanPassphrase);
   }
 

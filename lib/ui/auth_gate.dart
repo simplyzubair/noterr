@@ -47,14 +47,12 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     );
     WidgetsBinding.instance.addObserver(this);
     StickyWindowService.instance.bindController(_controller);
-    if (widget.hasCloud) {
-      _autoUnlocking = true;
-      unawaited(_tryAutoUnlock());
-    } else if (widget.startHidden) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(_showUnlockWindow());
-      });
-    }
+    // Try the passphrase saved on this device first, cloud or not. A local-only
+    // vault can still hold a saved passphrase, and older builds stored a free
+    // text one that the PIN screen cannot express, so skipping this left those
+    // vaults unopenable.
+    _autoUnlocking = true;
+    unawaited(_tryAutoUnlock());
   }
 
   Future<void> _tryAutoUnlock() async {
