@@ -102,10 +102,10 @@ jobs:
           code=${PIPESTATUS[0]}
           set -e
           if [ "$code" -ne 0 ]; then
-            echo "Gradle build failed; last 60 lines follow as annotations."
-            tail -n 60 build-apk.log | while IFS= read -r line; do
-              echo "::error::$line"
-            done
+            # GitHub caps annotations per step, so collapse the diagnostic
+            # lines into a single annotation instead of one per log line.
+            detail=$(grep -Ei 'FAILURE:|What went wrong|Caused by|error:|Execution failed|Exception' build-apk.log | tail -n 25 | paste -sd '~' - | cut -c1-3500)
+            echo "::error::APK build failed (exit $code). Log extract: $detail"
             exit "$code"
           fi
 
