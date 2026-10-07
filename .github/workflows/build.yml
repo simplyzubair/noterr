@@ -37,7 +37,19 @@ jobs:
         run: flutter pub get
 
       - name: Analyze
-        run: flutter analyze
+        shell: bash
+        run: |
+          set +e
+          flutter --version | head -1
+          flutter analyze 2>&1 | tee analyze.log
+          code=${PIPESTATUS[0]}
+          set -e
+          if [ "$code" -ne 0 ]; then
+            # Run logs need auth to read; annotations don't, so surface the issues.
+            detail=$(grep -E ' - (error|warning|info) - ' analyze.log | head -n 15 | paste -sd '~' - | cut -c1-3500)
+            echo "::error::flutter analyze failed: $detail"
+            exit "$code"
+          fi
 
       - name: Test
         run: flutter test
