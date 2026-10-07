@@ -74,7 +74,9 @@ class ObsidianSyncService {
 
   // Last-modified timestamp of the daily note when we last pushed.
   // Used to detect external edits (Obsidian or LiveSync).
-  DateTime? _lastKnownModified;
+  // Keyed by file path: Noterr can write tomorrow's note as well as today's,
+  // and one shared timestamp would hide external edits to the other file.
+  final Map<String, DateTime> _lastKnownModified = {};
   // Config loaded at startup / after user sets vault path.
   ObsidianSyncConfig? _config;
 
@@ -90,14 +92,14 @@ class ObsidianSyncService {
     _config = config;
     await _secureStorage.write(key: _vaultPathKey, value: config.vaultPath);
     await _secureStorage.write(key: _folderKey,    value: config.dailyNotesFolder);
-    _lastKnownModified = null; // force a full sync on next call
+    _lastKnownModified.clear(); // force a full sync on next call
   }
 
   Future<void> clearConfig() async {
     _config = ObsidianSyncConfig(vaultPath: '', dailyNotesFolder: '');
     await _secureStorage.delete(key: _vaultPathKey);
     await _secureStorage.delete(key: _folderKey);
-    _lastKnownModified = null;
+    _lastKnownModified.clear();
   }
 
   ObsidianSyncConfig? get config => _config;
@@ -154,7 +156,40 @@ class ObsidianSyncService {
     }
 
     await file.writeAsString(next, flush: true);
-    _lastKnownModified = await file.lastModified();
+    _lastKnownModified[file.path] = await file.lastModified();
+  }
+
+  // ── Weekly summary page ───────────────────────────────────────────────────
+
+  static const weeklyFolder = 'Weekly Summary';
+  static const _weeklyStart = '<!-- noterr:weekly -->';
+  static const _weeklyEnd = '<!-- /noterr:weekly -->';
+
+  /// Writes [markdown] to `<vault>/Weekly Summary/<isoWeek>.md`. Only the part
+  /// between Noterr's markers is replaced, so anything the user adds to the
+  /// page survives a rewrite.
+  Future<void> writeWeeklySummary(String isoWeek, String markdown) async {
+    final cfg = _config;
+    if (cfg == null || !cfg.isConfigured) return;
+    final sep = Platform.pathSeparator;
+    final file = File('${cfg.vaultPath}$sep$weeklyFolder$sep$isoWeek.md');
+    await file.parent.create(recursive: true);
+    final block = '$_weeklyStart\n$markdown\n$_weeklyEnd';
+
+    var existing = '';
+    if (await file.exists()) existing = await file.readAsString();
+    final start = existing.indexOf(_weeklyStart);
+    final end = start == -1 ? -1 : existing.indexOf(_weeklyEnd, start);
+    final String next;
+    if (start == -1 || end == -1) {
+      final trimmed = existing.trimRight();
+      next = trimmed.isEmpty ? block : '$block\n\n$trimmed';
+    } else {
+      next = existing.substring(0, start) +
+          block +
+          existing.substring(end + _weeklyEnd.length);
+    }
+    await file.writeAsString('${next.trimRight()}\n', flush: true);
   }
 
   // ── Pull: Obsidian → Noterr ───────────────────────────────────────────────
@@ -171,7 +206,7 @@ class ObsidianSyncService {
 
     final modified = await file.lastModified();
     // Skip if we wrote this ourselves and nothing has changed since.
-    final lkm = _lastKnownModified;
+    final lkm = _lastKnownModified[file.path];
     if (lkm != null && !modified.isAfter(lkm)) {
       return const ObsidianSyncResult();
     }
@@ -190,7 +225,7 @@ class ObsidianSyncService {
     if (!isConfigured) return false;
     final file = _file(date);
     if (!await file.exists()) return false;
-    final lkm = _lastKnownModified;
+    final lkm = _lastKnownModified[file.path];
     if (lkm == null) return true;
     final modified = await file.lastModified();
     return modified.isAfter(lkm);

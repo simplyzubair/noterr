@@ -221,6 +221,7 @@ class Note {
     required this.createdAt,
     required this.updatedAt,
     required this.deviceId,
+    this.noteDate,
     this.revision = 1,
     this.boardName = 'Personal',
     this.tags = const [],
@@ -270,6 +271,7 @@ class Note {
           ? null
           : DateTime.tryParse(json['deletedAt'] as String)?.toUtc(),
       deviceId: json['deviceId'] as String? ?? '',
+      noteDate: parseNoteDate(json['noteDate'] as String?),
       revision: json['revision'] as int? ?? 1,
       boardName: json['boardName'] as String? ?? 'Personal',
       tags: ((json['tags'] as List?) ?? const [])
@@ -325,6 +327,15 @@ class Note {
   final DateTime updatedAt;
   final DateTime? deletedAt;
   final String deviceId;
+
+  /// Calendar day a daily board stands for, as local midnight.
+  ///
+  /// A board planned ahead (tomorrow's to-dos written at 21:00) is created a
+  /// day early, so [createdAt] alone would file it under the wrong day. Null
+  /// on notes saved before this field existed; [dayKey] then falls back to
+  /// the local date of [createdAt], which was the old rule.
+  final DateTime? noteDate;
+
   final int revision;
   final String boardName;
   final List<String> tags;
@@ -347,6 +358,13 @@ class Note {
     if (text.isNotEmpty) return text;
     final firstOpenItem = checklist.firstWhereOrNull((item) => !item.done);
     return firstOpenItem?.text ?? '';
+  }
+
+  /// The local calendar day this note belongs to. Use this, not [createdAt],
+  /// to decide which day a daily board is for.
+  DateTime get dayKey {
+    final d = noteDate ?? createdAt.toLocal();
+    return DateTime(d.year, d.month, d.day);
   }
 
   bool get hasReminder => reminder.isSet;
@@ -376,6 +394,7 @@ class Note {
     DateTime? updatedAt,
     DateTime? deletedAt,
     String? deviceId,
+    DateTime? noteDate,
     int? revision,
     String? boardName,
     List<String>? tags,
@@ -404,6 +423,7 @@ class Note {
       updatedAt: updatedAt ?? this.updatedAt,
       deletedAt: deletedAt ?? this.deletedAt,
       deviceId: deviceId ?? this.deviceId,
+      noteDate: noteDate ?? this.noteDate,
       revision: revision ?? this.revision,
       boardName: boardName ?? this.boardName,
       tags: tags ?? this.tags,
@@ -435,6 +455,7 @@ class Note {
         'updatedAt': updatedAt.toIso8601String(),
         'deletedAt': deletedAt?.toIso8601String(),
         'deviceId': deviceId,
+        'noteDate': formatNoteDate(noteDate),
         'revision': revision,
         'boardName': boardName,
         'tags': tags,
@@ -452,4 +473,19 @@ class Note {
         'isArchived': isArchived,
         'isDeleted': isDeleted,
       };
+}
+
+/// Serialises a [Note.noteDate] as `yyyy-MM-dd`. A calendar day has no time
+/// zone, so storing an instant would shift it for devices in other zones.
+String? formatNoteDate(DateTime? date) {
+  if (date == null) return null;
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${date.year.toString().padLeft(4, '0')}-${two(date.month)}-${two(date.day)}';
+}
+
+DateTime? parseNoteDate(String? raw) {
+  if (raw == null) return null;
+  final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(raw.trim());
+  if (m == null) return null;
+  return DateTime(int.parse(m[1]!), int.parse(m[2]!), int.parse(m[3]!));
 }

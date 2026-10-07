@@ -8,9 +8,11 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../app/app_config.dart';
+import '../app/noterr_app.dart' show noterrNavigatorKey;
 import '../controllers/noterr_controller.dart';
 import '../models/note.dart';
 import '../services/daily_quote.dart';
+import '../services/evening_reminder_service.dart';
 import '../services/obsidian_sync_service.dart';
 import '../services/startup_service.dart';
 import '../services/sticky_window_service.dart';
@@ -61,6 +63,12 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     );
     // Check for updates in the background after a short delay.
     Future.delayed(const Duration(seconds: 8), _checkForUpdate);
+    unawaited(
+      EveningReminderService.instance.start(
+        widget.controller,
+        noterrNavigatorKey,
+      ),
+    );
   }
 
   @override
@@ -70,6 +78,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       trayManager.removeListener(this);
     }
     _reminderTimer?.cancel();
+    EveningReminderService.instance.stop();
     super.dispose();
   }
 
@@ -464,6 +473,8 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
         unawaited(_openPlans());
       case 'history':
         _openHistory();
+      case 'plan':
+        unawaited(EveningReminderService.instance.openPlanner());
       case 'review':
         _openDailyReview();
       case 'templates':
@@ -713,6 +724,12 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
             title: const Text('Noterr'),
             actions: [
               IconButton(
+                tooltip: 'Plan tomorrow',
+                onPressed: () =>
+                    unawaited(EveningReminderService.instance.openPlanner()),
+                icon: const Icon(Icons.edit_calendar_outlined),
+              ),
+              IconButton(
                 tooltip: 'Save and sync',
                 onPressed: _saveNow,
                 icon: const Icon(Icons.save_outlined),
@@ -733,6 +750,13 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                     child: ListTile(
                       leading: Icon(Icons.history),
                       title: Text('History'),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'plan',
+                    child: ListTile(
+                      leading: Icon(Icons.edit_calendar_outlined),
+                      title: Text('Plan tomorrow'),
                     ),
                   ),
                   const PopupMenuItem(
@@ -1626,7 +1650,7 @@ class _HistoryScreenState extends State<_HistoryScreen> {
             .toList();
         final grouped = <String, Map<String, List<Note>>>{};
         for (final note in notes) {
-          final date = note.createdAt.toLocal();
+          final date = note.dayKey;
           final month = DateFormat('MMMM yyyy').format(date);
           final day = DateFormat('d MMM yyyy').format(date);
           grouped.putIfAbsent(month, () => <String, List<Note>>{});

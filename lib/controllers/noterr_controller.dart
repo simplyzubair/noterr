@@ -11,6 +11,7 @@ import '../services/local_vault.dart';
 import '../services/obsidian_sync_service.dart';
 import '../services/remote_sync_service.dart';
 import '../services/vault_crypto.dart';
+import '../services/weekly_summary.dart';
 import '../services/widget_publisher.dart';
 
 enum SyncState { offline, idle, syncing, error }
@@ -90,6 +91,7 @@ class NoterrController extends ChangeNotifier {
   Timer? _syncTimer;
   Timer? _dailyTimer;
   Timer? _obsidianPollTimer;
+  String? _weeklyRunKey;
   String _deviceId = '';
   String? _activeVaultSalt;
   DateTime? _lastPulledAt;
@@ -382,7 +384,7 @@ class NoterrController extends ChangeNotifier {
           !note.isArchived &&
           note.supportsChecklist &&
           note.boardName == 'Today' &&
-          _isSameLocalDay(note.createdAt.toLocal(), now);
+          _isSameLocalDay(note.dayKey, now);
     }).firstOrNull;
   }
 
@@ -391,6 +393,7 @@ class NoterrController extends ChangeNotifier {
       return !note.isDeleted &&
           !note.isArchived &&
           note.id != todayTodoNote?.id &&
+          !_isFutureDailyBoard(note) &&
           note.type != NoteType.checklist;
     }).toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -429,6 +432,175 @@ class NoterrController extends ChangeNotifier {
       (a, b) => a.item.reminderAt!.compareTo(b.item.reminderAt!),
     );
     return reminders;
+  }
+
+  // ── Weekly summary ───────────────────────────────────────────────────────
+
+  static const weeklySummaryBoard = 'Weekly Summary';
+
+  /// Writes the weekly summary as a Noterr note and an Obsidian page.
+  ///
+  /// From Sunday 06:00 it summarises the current week so far (Monday to
+  /// today). From Monday on, it writes the finished Monday-to-Sunday summary
+  /// for the week before, once, and tags it `final`. Safe to call often.
+  Future<void> maybeWriteWeeklySummary({DateTime? now}) async {
+    if (_key == null) return;
+    final at = now ?? DateTime.now();
+    final bool isFinal;
+    final DateTime weekStart;
+    if (at.weekday == DateTime.sunday) {
+      if (at.hour < 6) return;
+      weekStart = mondayOf(at);
+      isFinal = false;
+    } else {
+      weekStart = mondayOf(at).subtract(const Duration(days: 7));
+      isFinal = true;
+    }
+    final summary = WeeklySummary.compute(
+      _notes,
+      weekStart,
+      until: isFinal ? null : at,
+    );
+    final runKey = '${summary.isoWeek}:${isFinal ? 'final' : _dayOnly(at)}';
+    if (_weeklyRunKey == runKey) return;
+    _weeklyRunKey = runKey;
+
+    final title = 'Week ${summary.isoWeek}';
+    final existing = _notes.where((note) {
+      return !note.isDeleted &&
+          note.boardName == weeklySummaryBoard &&
+          note.title == title;
+    }).firstOrNull;
+    if (isFinal && existing != null && existing.tags.contains('final')) return;
+    // Nothing happened that week (for example a fresh install): no page.
+    if (summary.total == 0 && existing == null) return;
+
+    final body = summary.toPlainText();
+    final tags = ['weekly-summary', if (isFinal) 'final'];
+    if (existing == null) {
+      final note = Note.blank(_deviceId, type: NoteType.note).copyWith(
+        title: title,
+        body: body,
+        boardName: weeklySummaryBoard,
+        tags: tags,
+        colorHex: 'E3F2FD',
+        popOnDesktop: false,
+        showOnMobileWidget: false,
+      );
+      _notes.add(note);
+      await _persistAndPush(note);
+    } else if (existing.body != body || !listEquals(existing.tags, tags)) {
+      await updateNote(existing.copyWith(body: body, tags: tags));
+    }
+
+    if (_obsidian.isConfigured) {
+      try {
+        await _obsidian.writeWeeklySummary(
+          summary.isoWeek,
+          summary.toMarkdown(),
+        );
+      } catch (e) {
+        debugPrint('[WeeklySummary] Obsidian write failed: $e');
+      }
+    }
+  }
+
+  // ── Planning the next day ────────────────────────────────────────────────
+
+  /// The day an evening planning session is for. Reminders run from 21:00 to
+  /// 00:00; the midnight one belongs to the evening before, so before 04:00
+  /// the target is the day that has just started.
+  DateTime get planningTargetDay {
+    final now = DateTime.now();
+    final today = _dayOnly(now);
+    return now.hour < 4 ? today : today.add(const Duration(days: 1));
+  }
+
+  /// The daily board for [planningTargetDay], if it exists yet.
+  Note? get plannedDayNote => _dailyBoardFor(planningTargetDay);
+
+  /// True once the user has written at least one task for the target day.
+  /// Tasks carried over automatically don't count; they aren't a plan.
+  bool get hasPlannedNextDay => isDayPlanned(planningTargetDay);
+
+  /// Whether the user wrote any task of their own for [day].
+  bool isDayPlanned(DateTime day) {
+    final board = _dailyBoardFor(day);
+    if (board == null) return false;
+    return board.checklist.any(
+      (item) => _isOwnPlannedTask(item) && item.text.trim().isNotEmpty,
+    );
+  }
+
+  /// A task the user typed for that day, as opposed to one carried over from
+  /// an earlier day or generated by a Plan.
+  bool _isOwnPlannedTask(ChecklistItem item) =>
+      item.carriedFrom == null && item.planId == null;
+
+  /// The user's own tasks already planned for [planningTargetDay].
+  List<String> get plannedOwnTasks {
+    final board = plannedDayNote;
+    if (board == null) return const [];
+    return board.checklist
+        .where((i) => _isOwnPlannedTask(i) && i.text.trim().isNotEmpty)
+        .map((i) => i.text.trim())
+        .toList();
+  }
+
+  /// Open tasks on today's board, shown at planning time so they can be
+  /// ticked off before they carry over to the next day.
+  List<ChecklistItem> get openTasksToday {
+    final today = todayTodoNote;
+    if (today == null) return const [];
+    return today.checklist
+        .where((item) => !item.done && item.text.trim().isNotEmpty)
+        .toList();
+  }
+
+  /// Gets or creates the board for [planningTargetDay]. Written straight
+  /// away, with its own [Note.noteDate], so a plan made at 21:00 is safe even
+  /// if the app is killed overnight.
+  Future<Note> ensurePlannedDayNote() async {
+    final day = planningTargetDay;
+    final existing = _dailyBoardFor(day);
+    if (existing != null) return existing;
+    if (_isSameLocalDay(day, DateTime.now())) return ensureTodayTodoNote();
+    final board = _newTodayBoard(day);
+    _notes.add(board);
+    await _persistAndPush(board);
+    return board;
+  }
+
+  /// Replaces the user's own tasks on the planned board with [texts], keeping
+  /// carried-over and Plan-generated ones. Blank lines and duplicates are
+  /// dropped.
+  Future<void> savePlannedTasks(List<String> texts) async {
+    final board = await ensurePlannedDayNote();
+    final carried = board.checklist
+        .where((item) => !_isOwnPlannedTask(item))
+        .toList();
+    final seen = carried.map((i) => i.text.trim().toLowerCase()).toSet();
+    final ownByText = {
+      for (final item in board.checklist.where(_isOwnPlannedTask))
+        item.text.trim().toLowerCase(): item,
+    };
+    final own = <ChecklistItem>[];
+    for (final raw in texts) {
+      final text = raw.trim();
+      final key = text.toLowerCase();
+      if (text.isEmpty || !seen.add(key)) continue;
+      own.add(ownByText[key] ?? ChecklistItem(text: text));
+    }
+    await updateNote(board.copyWith(checklist: [...own, ...carried]));
+  }
+
+  Note? _dailyBoardFor(DateTime day) {
+    return _notes.where((note) {
+      return !note.isDeleted &&
+          !note.isArchived &&
+          _isDailyBoard(note) &&
+          _isSameLocalDay(note.dayKey, day);
+    }).firstOrNull;
   }
 
   Future<Note> ensureTodayTodoNote() async {
@@ -954,6 +1126,7 @@ class NoterrController extends ChangeNotifier {
       unawaited(_obsidianPush(today));
     }
     _startObsidianPollTimer();
+    unawaited(maybeWriteWeeklySummary());
     if (hasCloud) {
       unawaited(_finishCloudUnlock(passphrase));
     }
@@ -1010,6 +1183,7 @@ class NoterrController extends ChangeNotifier {
     if (_key == null) return;
     _dailyTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       unawaited(ensureTodayTodoNote());
+      unawaited(maybeWriteWeeklySummary());
     });
   }
 
@@ -1026,7 +1200,8 @@ class NoterrController extends ChangeNotifier {
   Future<void> _obsidianPush(Note note) async {
     if (!_obsidian.isConfigured) return;
     try {
-      await _obsidian.push(note, DateTime.now());
+      // Write to the note's own day, so tomorrow's plan lands in tomorrow's file.
+      await _obsidian.push(note, note.dayKey);
     } catch (e) {
       debugPrint('[ObsidianSync] push error: $e');
     }
@@ -1323,13 +1498,17 @@ class NoterrController extends ChangeNotifier {
     return note.boardName == 'Today' && note.supportsChecklist;
   }
 
+  bool _isFutureDailyBoard(Note note) {
+    return _isDailyBoard(note) && note.dayKey.isAfter(_dayOnly(DateTime.now()));
+  }
+
   Future<void> _rollDailyBoardIfNeeded() async {
     final now = DateTime.now();
     final staleBoards = _notes.where((note) {
       return !note.isDeleted &&
           !note.isArchived &&
           note.boardName == 'Today' &&
-          !_isSameLocalDay(note.createdAt.toLocal(), now);
+          note.dayKey.isBefore(_dayOnly(now));
     }).toList();
 
     final carryTasks = <ChecklistItem>[];
@@ -1346,12 +1525,12 @@ class NoterrController extends ChangeNotifier {
             .where(
               (item) => !item.done && item.text.trim().isNotEmpty,
             )
-            .map((item) => item.copyWith(carriedFrom: board.createdAt)),
+            .map((item) => item.copyWith(carriedFrom: board.dayKey.toUtc())),
       );
       await _persistAndPush(
         _touch(
           board.copyWith(
-            title: _historyTitle(board.createdAt.toLocal()),
+            title: _historyTitle(board.dayKey),
             boardName: 'History',
             isArchived: true,
             isPinned: false,
@@ -1414,16 +1593,12 @@ class NoterrController extends ChangeNotifier {
           note.isArchived &&
           note.boardName == 'History' &&
           note.supportsChecklist &&
-          note.createdAt.toLocal().isBefore(DateTime(
-                now.year,
-                now.month,
-                now.day,
-              )) &&
+          note.dayKey.isBefore(_dayOnly(now)) &&
           note.checklist.any(
             (item) => !item.done && item.text.trim().isNotEmpty,
           );
     }).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      ..sort(_byDayThenCreatedDesc);
 
     if (latestHistory.isEmpty) return const [];
     final source = latestHistory.first;
@@ -1440,7 +1615,7 @@ class NoterrController extends ChangeNotifier {
               text.isNotEmpty &&
               !existingTexts.contains(text.toLowerCase());
         })
-        .map((item) => item.copyWith(carriedFrom: source.createdAt))
+        .map((item) => item.copyWith(carriedFrom: source.dayKey.toUtc()))
         .toList();
   }
 
@@ -1454,14 +1629,10 @@ class NoterrController extends ChangeNotifier {
           note.boardName == 'History' &&
           note.supportsBody &&
           !_wasBodyClearedAfter(note, bodyClearedAt) &&
-          note.createdAt.toLocal().isBefore(DateTime(
-                now.year,
-                now.month,
-                now.day,
-              )) &&
+          note.dayKey.isBefore(_dayOnly(now)) &&
           note.body.trim().isNotEmpty;
     }).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      ..sort(_byDayThenCreatedDesc);
 
     if (latestHistory.isEmpty) return null;
     return latestHistory.first.body.trim();
@@ -1472,7 +1643,7 @@ class NoterrController extends ChangeNotifier {
       return !note.isDeleted &&
           !note.isArchived &&
           note.boardName == 'Today' &&
-          _isSameLocalDay(note.createdAt.toLocal(), now);
+          _isSameLocalDay(note.dayKey, now);
     }).toList();
     if (boards.length < 2) return;
 
@@ -1573,7 +1744,10 @@ class NoterrController extends ChangeNotifier {
     await _localVault.save(_notes, key, lastPulledAt: _lastPulledAt);
   }
 
-  Future<void> _publishWidget() => _widgetPublisher.publish(_notes);
+  // A board planned for tomorrow must not show on today's widget.
+  Future<void> _publishWidget() => _widgetPublisher.publish(
+        _notes.where((note) => !_isFutureDailyBoard(note)).toList(),
+      );
 
   void _setSync(SyncState state) {
     _syncState = state;
@@ -1658,6 +1832,7 @@ class NoterrController extends ChangeNotifier {
     final previous = _latestDailyStickySettings;
     return Note.blank(_deviceId, type: NoteType.full).copyWith(
       title: _dailyTitle(now),
+      noteDate: _dayOnly(now),
       boardName: 'Today',
       isPinned: true,
       popOnDesktop: previous?.popOnDesktop ?? true,
@@ -1682,6 +1857,13 @@ class NoterrController extends ChangeNotifier {
 
   bool _isSameLocalDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  DateTime _dayOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  int _byDayThenCreatedDesc(Note a, Note b) {
+    final byDay = b.dayKey.compareTo(a.dayKey);
+    return byDay != 0 ? byDay : b.createdAt.compareTo(a.createdAt);
   }
 
   String _dailyTitle(DateTime date) {
