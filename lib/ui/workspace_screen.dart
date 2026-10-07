@@ -1954,6 +1954,7 @@ class _UpdateBanner extends StatefulWidget {
 
 class _UpdateBannerState extends State<_UpdateBanner> {
   bool _isDownloading = false;
+  bool _needsPermission = false;
 
   @override
   Widget build(BuildContext context) {
@@ -1969,8 +1970,11 @@ class _UpdateBannerState extends State<_UpdateBanner> {
             Expanded(
               child: Text(
                 _isDownloading
-                    ? 'Downloading Noterr ${widget.info.latestVersion} in background...'
-                    : 'Noterr ${widget.info.latestVersion} is available. Click to auto-update.',
+                    ? 'Downloading Noterr ${widget.info.latestVersion}...'
+                    : _needsPermission
+                        ? 'Allow "Install unknown apps" for Noterr, come back, '
+                            'then tap Update again.'
+                        : 'Noterr ${widget.info.latestVersion} is available.',
                 style: TextStyle(
                   color: scheme.onPrimaryContainer,
                   fontSize: 13,
@@ -1994,9 +1998,14 @@ class _UpdateBannerState extends State<_UpdateBanner> {
                 ),
                 onPressed: () async {
                   setState(() => _isDownloading = true);
-                  await UpdateService.downloadAndInstallUpdate(widget.info);
+                  final outcome =
+                      await UpdateService.downloadAndInstallUpdate(widget.info);
                   if (mounted) {
-                    setState(() => _isDownloading = false);
+                    setState(() {
+                      _isDownloading = false;
+                      _needsPermission =
+                          outcome == UpdateOutcome.needsPermission;
+                    });
                   }
                 },
                 child: const Text('Update Now', style: TextStyle(fontSize: 13)),

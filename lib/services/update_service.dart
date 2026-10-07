@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -49,8 +50,24 @@ class UpdateInfo {
   }
 }
 
+/// What happened when the user tapped "Update now".
+enum UpdateOutcome {
+  /// The installer is running (Windows) or showing its Install button
+  /// (Android).
+  started,
+
+  /// Android needs "Install unknown apps" switched on for Noterr first. The
+  /// settings screen is open; tapping update again afterwards continues.
+  needsPermission,
+
+  /// Something failed; the release page was opened instead.
+  openedInBrowser,
+}
+
 class UpdateService {
   UpdateService._();
+
+  static const _installer = MethodChannel('noterr/updater');
 
   static const _apiUrl =
       'https://api.github.com/repos/$_repo/releases/latest';
@@ -120,11 +137,14 @@ class UpdateService {
     return null;
   }
 
-  /// Downloads and silently installs the update for Windows, or prompts for Android.
-  static Future<void> downloadAndInstallUpdate(UpdateInfo info) async {
+  /// Windows: downloads the installer and runs it silently, then exits so it
+  /// can replace the files. Android: downloads the APK inside the app and
+  /// hands it to the system installer, which shows a single Install button
+  /// (Android never lets an app outside the Play Store update with no tap).
+  static Future<UpdateOutcome> downloadAndInstallUpdate(UpdateInfo info) async {
     try {
       final response = await http.get(Uri.parse(info.downloadUrl));
-      if (response.statusCode != 200) return;
+      if (response.statusCode != 200) return _openInBrowser(info);
 
       final tempDir = await getTemporaryDirectory();
 
@@ -135,17 +155,36 @@ class UpdateService {
         // Execute the installer silently and force close this running instance
         await Process.start(filePath, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/FORCECLOSEAPPLICATIONS']);
         exit(0);
-      } else if (Platform.isAndroid) {
-        // Since background APK installs require complex native code, 
-        // fallback to browser download on Android which natively handles it.
-        await launchUrl(
-          Uri.parse(info.downloadUrl),
-          mode: LaunchMode.externalApplication,
+      }
+
+      if (Platform.isAndroid) {
+        // Must sit under cache/updates/, the folder shared in update_paths.xml.
+        final dir = Directory('${tempDir.path}/updates');
+        await dir.create(recursive: true);
+        final file = File('${dir.path}/noterr-${info.latestVersion}.apk');
+        await file.writeAsBytes(response.bodyBytes, flush: true);
+        final result = await _installer.invokeMethod<String>(
+          'installApk',
+          {'path': file.path},
         );
+        return result == 'needs_permission'
+            ? UpdateOutcome.needsPermission
+            : UpdateOutcome.started;
       }
     } catch (_) {
-      // Fallback or ignore
+      // Fall through to the browser.
     }
+    return _openInBrowser(info);
+  }
+
+  static Future<UpdateOutcome> _openInBrowser(UpdateInfo info) async {
+    try {
+      await launchUrl(
+        Uri.parse(info.releaseUrl.isNotEmpty ? info.releaseUrl : info.downloadUrl),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {}
+    return UpdateOutcome.openedInBrowser;
   }
 
   static String get currentVersion => _currentVersion;

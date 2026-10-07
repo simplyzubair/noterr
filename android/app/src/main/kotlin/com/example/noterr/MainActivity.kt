@@ -4,8 +4,12 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.util.Log
+import androidx.core.content.FileProvider
+import java.io.File
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -13,6 +17,49 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "noterr/updater"
+        ).setMethodCallHandler { call, result ->
+            if (call.method != "installApk") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+            val path = call.argument<String>("path")
+            if (path.isNullOrBlank() || !File(path).exists()) {
+                result.error("missing", "Downloaded update not found", null)
+                return@setMethodCallHandler
+            }
+            // Android 8+ asks once per app for "Install unknown apps". Send the
+            // user to that switch; the Dart side retries after they come back.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                !packageManager.canRequestPackageInstalls()
+            ) {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:$packageName")
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+                result.success("needs_permission")
+                return@setMethodCallHandler
+            }
+            try {
+                val uri = FileProvider.getUriForFile(this, "$packageName.updates", File(path))
+                startActivity(
+                    Intent(Intent.ACTION_VIEW)
+                        .setDataAndType(uri, "application/vnd.android.package-archive")
+                        .addFlags(
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                Intent.FLAG_ACTIVITY_NEW_TASK
+                        )
+                )
+                result.success("started")
+            } catch (error: Throwable) {
+                Log.w("Noterr", "Could not start the installer", error)
+                result.error("install_failed", error.message, null)
+            }
+        }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "noterr/widget"
