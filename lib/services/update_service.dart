@@ -144,7 +144,7 @@ class UpdateService {
   static Future<UpdateOutcome> downloadAndInstallUpdate(UpdateInfo info) async {
     try {
       final response = await http.get(Uri.parse(info.downloadUrl));
-      if (response.statusCode != 200) return _openInBrowser(info);
+      if (response.statusCode != 200) return await _openInBrowser(info);
 
       final tempDir = await getTemporaryDirectory();
 
