@@ -1,14 +1,30 @@
+import java.util.Base64
 import java.util.Properties
 
-// Release signing. Credentials live in android/key.properties, which is
-// gitignored; CI writes it from repository secrets before building. Without
-// that file the release build falls back to the debug key so that a plain
+// Release signing. The preferred source is Infisical: scripts/release-android.ps1
+// runs the build under `infisical run`, which puts the ANDROID_* values in the
+// environment. The keystore arrives base64 encoded and is written to
+// build/signing/, which the script deletes after the build.
+// android/key.properties (gitignored) is still read as a local fallback.
+// With neither, the release build uses the debug key so that a plain
 // `flutter run --release` still works on a fresh clone.
 val keystoreProperties = Properties().apply {
     val f = rootProject.file("key.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }
-val hasReleaseKeystore = keystoreProperties.getProperty("storeFile") != null
+val envKeystore: File? = System.getenv("ANDROID_KEYSTORE_BASE64")
+    ?.takeIf { it.isNotBlank() }
+    ?.let { encoded ->
+        rootProject.layout.buildDirectory.file("signing/release.jks").get().asFile.apply {
+            parentFile.mkdirs()
+            writeBytes(Base64.getMimeDecoder().decode(encoded))
+        }
+    }
+fun signingValue(env: String, prop: String): String? =
+    System.getenv(env)?.takeIf { it.isNotBlank() } ?: keystoreProperties.getProperty(prop)
+val releaseStoreFile: File? =
+    envKeystore ?: keystoreProperties.getProperty("storeFile")?.let { rootProject.file(it) }
+val hasReleaseKeystore = releaseStoreFile != null
 
 plugins {
     id("com.android.application")
@@ -40,10 +56,10 @@ android {
     signingConfigs {
         if (hasReleaseKeystore) {
             create("release") {
-                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
-                storePassword = keystoreProperties.getProperty("storePassword")
-                keyAlias = keystoreProperties.getProperty("keyAlias")
-                keyPassword = keystoreProperties.getProperty("keyPassword")
+                storeFile = releaseStoreFile
+                storePassword = signingValue("ANDROID_STORE_PASSWORD", "storePassword")
+                keyAlias = signingValue("ANDROID_KEY_ALIAS", "keyAlias")
+                keyPassword = signingValue("ANDROID_KEY_PASSWORD", "keyPassword")
             }
         }
     }

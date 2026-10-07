@@ -16,6 +16,10 @@ android/local.properties
 *.jks
 *.keystore
 *.log
-.env
+.env*
+!.env.example
 sync_config.bat
 .DS_Store
+
+# Release artifacts copied out by scripts/release-android.ps1
+noterr-android-*.apk

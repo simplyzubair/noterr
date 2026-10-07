@@ -10,125 +10,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ────────────────────────────────────────────────────────────────
-  # Android
-  # ────────────────────────────────────────────────────────────────
-  android:
-    name: Android APKs
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Analyze
-        run: flutter analyze
-
-      - name: Test
-        run: flutter test
-
-      - name: Set up release keystore
-        env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-        run: |
-          missing=""
-          for v in KEYSTORE_BASE64 STORE_PASSWORD KEY_PASSWORD KEY_ALIAS; do
-            eval "val=\$$v"
-            if [ -z "$val" ]; then missing="$missing ANDROID_$v"; fi
-          done
-          if [ -n "$missing" ]; then
-            echo "::error::Missing repository secret(s):$missing. Without all four the APK would be signed with a throwaway debug key and could not install over an existing install."
-            exit 1
-          fi
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > android/noterr-release-key.jks 2>/dev/null || true
-          size=$(wc -c < android/noterr-release-key.jks)
-          echo "decoded keystore size: $size bytes (expected 2254)"
-          if [ "$size" -lt 100 ]; then
-            echo "::error::ANDROID_KEYSTORE_BASE64 did not decode to a keystore (got $size bytes). Re-copy it with the PowerShell command and paste the whole value."
-            exit 1
-          fi
-          # Stage 1: does the store password alone open the keystore?
-          if keytool -list -keystore android/noterr-release-key.jks -storepass "$STORE_PASSWORD" >/dev/null 2>&1; then
-            echo "store password: OK"
-          else
-            echo "::error::ANDROID_STORE_PASSWORD does not open the keystore (or the decoded file is corrupt). Re-enter that secret."
-            exit 1
-          fi
-          # Stage 2: does the alias exist? List alias names so a typo is visible.
-          echo "aliases present in keystore:"
-          keytool -list -keystore android/noterr-release-key.jks -storepass "$STORE_PASSWORD"             | grep -i "PrivateKeyEntry" || true
-          if ! keytool -list -keystore android/noterr-release-key.jks -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
-            echo "::error::ANDROID_KEY_ALIAS does not match any alias above. It must be the alias printed in the list."
-            exit 1
-          fi
-          echo "alias: OK"
-          # -list only proves the STORE password. Gradle also needs the KEY
-          # password, and a wrong one fails late with "Cannot recover key".
-          # -keypasswd to the same value verifies it without changing anything.
-          if ! keytool -keypasswd -keystore android/noterr-release-key.jks -alias "$KEY_ALIAS" -storepass "$STORE_PASSWORD" -keypass "$KEY_PASSWORD" -new "$KEY_PASSWORD" >/dev/null 2>&1; then
-            echo "::error::ANDROID_KEY_PASSWORD is wrong for alias $KEY_ALIAS (store password is fine). For this keystore it is the same value as ANDROID_STORE_PASSWORD; re-enter it with no trailing space."
-            exit 1
-          fi
-          echo "key password: OK\"
-          {
-            echo "storeFile=noterr-release-key.jks"
-            echo "storePassword=$STORE_PASSWORD"
-            echo "keyAlias=$KEY_ALIAS"
-            echo "keyPassword=$KEY_PASSWORD"
-          } > android/key.properties
-
-      - name: Read version from pubspec
-        id: version
-        run: |
-          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | sed 's/+.*//')
-          echo "app_version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Build split release APKs
-        env:
-          SYNC_URL: ${{ secrets.NOTERR_SYNC_URL }}
-          APP_VERSION: ${{ steps.version.outputs.app_version }}
-        run: |
-          set +e
-          flutter build apk --release --split-per-abi             --dart-define=NOTERR_SYNC_URL="$SYNC_URL"             --dart-define=NOTERR_APP_VERSION="$APP_VERSION" 2>&1 | tee build-apk.log
-          code=${PIPESTATUS[0]}
-          set -e
-          if [ "$code" -ne 0 ]; then
-            # GitHub caps annotations per step, so collapse the diagnostic
-            # lines into a single annotation instead of one per log line.
-            detail=$(grep -Ei 'FAILURE:|What went wrong|Caused by|error:|Execution failed|Exception' build-apk.log | tail -n 25 | paste -sd '~' - | cut -c1-3500)
-            echo "::error::APK build failed (exit $code). Log extract: $detail"
-            exit "$code"
-          fi
-
-      - name: Rename arm64 APK for release
-        run: |
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
-             noterr-android-arm64-v${{ steps.version.outputs.app_version }}.apk
-
-      - name: Upload Android APKs artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: noterr-android-apks
-          path: |
-            build/app/outputs/flutter-apk/*-release.apk
-            noterr-android-arm64-*.apk
+  # Android is built and signed on the owner's PC by
+  # scripts/release-android.ps1, with keys from Infisical. GitHub holds
+  # no signing secrets, so there is no Android job here.
 
   # ────────────────────────────────────────────────────────────────
   # Windows
@@ -168,7 +52,6 @@ jobs:
       - name: Build Windows release
         run: >
           flutter build windows --release
-          --dart-define=NOTERR_SYNC_URL="${{ secrets.NOTERR_SYNC_URL }}"
           --dart-define=NOTERR_APP_VERSION="${{ steps.version.outputs.app_version }}"
 
       - name: Zip Windows app
@@ -208,7 +91,7 @@ jobs:
   # ────────────────────────────────────────────────────────────────
   release:
     name: Publish GitHub Release
-    needs: [android, windows]
+    needs: [windows]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -236,4 +119,3 @@ jobs:
           files: |
             dist/noterr-windows-installer/NoterrSetup-*.exe
             dist/noterr-windows-release/noterr-windows-*.zip
-            dist/noterr-android-apks/noterr-android-arm64-*.apk
