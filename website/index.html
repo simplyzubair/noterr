@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noterr Download</title>
+<meta name="description" content="Download the latest Noterr for Windows and Android.">
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #ffffff; --text: #1d2330; --muted: #5b6475;
+    --accent: #00696b; --accent-text: #ffffff; --border: #dde2e8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b2029; --text: #e8ebf0; --muted: #9aa3b2;
+      --accent: #4fd1c5; --accent-text: #08201f; --border: #2a313d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 24px 16px;
+  }
+  main { width: 100%; max-width: 520px; text-align: center; }
+  .logo {
+    width: 72px; height: 72px; margin: 0 auto 16px; border-radius: 20px;
+    background: var(--accent); color: var(--accent-text);
+    display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 700;
+  }
+  h1 { margin: 0 0 4px; font-size: 2rem; }
+  .tag { color: var(--muted); margin: 0 0 28px; }
+  .cards { display: grid; gap: 14px; }
+  a.card {
+    display: flex; align-items: center; gap: 16px; text-align: left; text-decoration: none;
+    background: var(--card); color: var(--text); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px 20px; transition: border-color .15s, transform .15s;
+  }
+  a.card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  a.card[aria-disabled="true"] { opacity: .55; pointer-events: none; }
+  .icon { font-size: 28px; width: 36px; text-align: center; }
+  .label { font-weight: 600; }
+  .sub { color: var(--muted); font-size: .9rem; }
+  .btn {
+    margin-left: auto; background: var(--accent); color: var(--accent-text);
+    border-radius: 999px; padding: 6px 14px; font-size: .9rem; font-weight: 600; white-space: nowrap;
+  }
+  footer { margin-top: 28px; color: var(--muted); font-size: .85rem; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <div class="logo" aria-hidden="true">N</div>
+  <h1>Noterr</h1>
+  <p class="tag" id="version">Sticky notes and daily to-dos, synced.</p>
+
+  <div class="cards">
+    <a class="card" id="win" href="https://github.com/simplyzubair/noterr/releases/latest">
+      <span class="icon" aria-hidden="true">🪟</span>
+      <span><span class="label">Windows</span><br><span class="sub" id="win-sub">Installer (.exe)</span></span>
+      <span class="btn">Download</span>
+    </a>
+    <a class="card" id="android" href="https://github.com/simplyzubair/noterr/releases/latest">
+      <span class="icon" aria-hidden="true">🤖</span>
+      <span><span class="label">Android</span><br><span class="sub" id="android-sub">APK (arm64)</span></span>
+      <span class="btn">Download</span>
+    </a>
+  </div>
+
+  <footer>
+    Installed apps update themselves.
+    <a href="https://github.com/simplyzubair/noterr/releases">All releases</a>
+  </footer>
+</main>
+<script>
+  // Point the buttons at the newest release's files. If GitHub can't be
+  // reached, the links stay on the release page, which still works.
+  (async () => {
+    try {
+      const res = await fetch('https://api.github.com/repos/simplyzubair/noterr/releases/latest',
+        { headers: { Accept: 'application/vnd.github+json' } });
+      if (!res.ok) return;
+      const rel = await res.json();
+      const assets = rel.assets || [];
+      const find = (test) => assets.find((a) => test(a.name));
+      const exe = find((n) => /^NoterrSetup-.*\.exe$/.test(n));
+      const apk = find((n) => /arm64.*\.apk$/.test(n)) || find((n) => n.endsWith('.apk'));
+      const mb = (a) => (a.size / 1048576).toFixed(1) + ' MB';
+
+      document.getElementById('version').textContent = 'Latest version ' + rel.tag_name;
+      if (exe) {
+        document.getElementById('win').href = exe.browser_download_url;
+        document.getElementById('win-sub').textContent = 'Installer (.exe) · ' + mb(exe);
+      }
+      if (apk) {
+        document.getElementById('android').href = apk.browser_download_url;
+        document.getElementById('android-sub').textContent = 'APK (arm64) · ' + mb(apk);
+      } else {
+        document.getElementById('android-sub').textContent = 'Coming soon for ' + rel.tag_name;
+      }
+    } catch (_) { /* keep the release-page links */ }
+  })();
+</script>
+</body>
+</html>
