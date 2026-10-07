@@ -46,7 +46,7 @@ jobs:
           set -e
           if [ "$code" -ne 0 ]; then
             # Run logs need auth to read; annotations don't, so surface the issues.
-            detail=$(grep -E ' - (error|warning|info) - ' analyze.log | head -n 15 | paste -sd '~' - | cut -c1-3500)
+            detail=$( (grep -E '^ *(error|warning|info) - ' analyze.log || tail -n 15 analyze.log) | head -n 15 | paste -sd '~' - | cut -c1-3500)
             echo "::error::flutter analyze failed: $detail"
             exit "$code"
           fi
