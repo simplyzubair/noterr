@@ -27,6 +27,7 @@ These add to the global rules in `~/.claude/CLAUDE.md`. This repo is public, so 
 - Noterr is a Windows and Android app, so the app itself is never hosted.
 - Any server part (for example the sync backend or the website) goes on Contabo through Coolify. It is only open to the internet through nginx with HTTPS.
 - Coolify gets its secrets from Infisical with `/opt/infisical/scripts/sync-coolify.sh noterr`.
+- Website: Coolify app `noterr-website` (UUID `jcbbcuwysgecglkaleuazlyd`), built from `website/Dockerfile`, port mapping `127.0.0.1:3003:80` so only nginx can reach it. Host nginx config: `deploy/nginx/noterr.skillsgeek.com.conf`. HTTPS by `certbot --nginx`, same as the other sites.
 
 ## How to work
 
