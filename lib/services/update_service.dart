@@ -3,32 +3,41 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// The version baked in at build time via --dart-define=NOTERR_APP_VERSION
-const _currentVersion = String.fromEnvironment(
-  'NOTERR_APP_VERSION',
-  defaultValue: '0.2.0',
-);
+/// The installed app's version, read from the app itself (the build name:
+/// CI passes --build-name, local builds use pubspec.yaml). A value passed at
+/// build time used to default to 0.2.0 when it was missing, which made such
+/// builds offer the same update forever.
+Future<String> installedVersion() async {
+  try {
+    return (await PackageInfo.fromPlatform()).version;
+  } catch (_) {
+    return const String.fromEnvironment('NOTERR_APP_VERSION', defaultValue: '0.0.0');
+  }
+}
 
 /// GitHub repository owner/name
 const _repo = 'simplyzubair/noterr';
 
 class UpdateInfo {
   const UpdateInfo({
+    required this.currentVersion,
     required this.latestVersion,
     required this.downloadUrl,
     required this.releaseUrl,
   });
 
+  final String currentVersion;
   final String latestVersion;
   final String downloadUrl;   // direct asset URL
   final String releaseUrl;    // GitHub release page
 
   bool get isNewerThan {
     try {
-      final current = _parseVersion(_currentVersion);
+      final current = _parseVersion(currentVersion);
       final latest = _parseVersion(latestVersion);
       for (var i = 0; i < latest.length; i++) {
         final c = i < current.length ? current[i] : 0;
@@ -42,7 +51,11 @@ class UpdateInfo {
   }
 
   static List<int> _parseVersion(String v) {
+    // Drop a build suffix first: "0.4.78+178" must compare as 0.4.78, not
+    // 0.4.78178.
     return v
+        .split('+')
+        .first
         .replaceAll(RegExp(r'[^0-9.]'), '')
         .split('.')
         .map((p) => int.tryParse(p) ?? 0)
@@ -97,6 +110,7 @@ class UpdateService {
       final downloadUrl = _bestAssetUrl(assets) ?? releaseUrl;
 
       final info = UpdateInfo(
+        currentVersion: await installedVersion(),
         latestVersion: tag,
         downloadUrl: downloadUrl,
         releaseUrl: releaseUrl,
@@ -187,5 +201,4 @@ class UpdateService {
     return UpdateOutcome.openedInBrowser;
   }
 
-  static String get currentVersion => _currentVersion;
 }

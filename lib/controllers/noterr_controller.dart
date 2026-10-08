@@ -92,6 +92,10 @@ class NoterrController extends ChangeNotifier {
   Timer? _dailyTimer;
   Timer? _obsidianPollTimer;
   Timer? _cloudRetryTimer;
+  // The first sync after joining compares every note with the server, so a
+  // device that synced before (or with another server) uploads what the
+  // server is missing instead of trusting its old "last pulled" time.
+  bool _needsFullSync = true;
   String? _weeklyRunKey;
   String _deviceId = '';
   String? _activeVaultSalt;
@@ -1206,6 +1210,7 @@ class NoterrController extends ChangeNotifier {
           migrateFromSalts: [previousSalt, previousCachedSalt],
         );
       }
+      _needsFullSync = true;
       await syncNow();
       _subscribeRemote();
       _startSyncTimer();
@@ -1435,18 +1440,20 @@ class NoterrController extends ChangeNotifier {
     if (!hasCloud || key == null) return;
     _setSync(SyncState.syncing);
     try {
-      final since = _lastPulledAt?.subtract(const Duration(seconds: 5));
+      final fullSync = _needsFullSync || _lastPulledAt == null;
+      final since =
+          fullSync ? null : _lastPulledAt!.subtract(const Duration(seconds: 5));
       final remoteNotes = await _remote.pullNotes(key, since: since);
+      final remoteIds = remoteNotes.map((note) => note.id).toSet();
       _lastPulledCount = remoteNotes.length;
       _merge(remoteNotes);
       await _rollDailyBoardIfNeeded();
       await _materializePlanItemsForToday();
-      final shouldBackfillCloud = remoteNotes.isEmpty &&
-          _lastPulledAt == null &&
-          _notes.any((note) => !note.isDeleted);
-      final notesToPush = shouldBackfillCloud
-          ? _notes
-          : _notes.where((note) => _dirtyNoteIds.contains(note.id)).toList();
+      final notesToPush = _notes
+          .where((note) =>
+              _dirtyNoteIds.contains(note.id) ||
+              (fullSync && !remoteIds.contains(note.id)))
+          .toList();
       var pushed = 0;
       for (final note in notesToPush) {
         await _remote.pushNote(note, key, _deviceId);
@@ -1454,6 +1461,7 @@ class NoterrController extends ChangeNotifier {
         pushed++;
       }
       _lastPushedCount = pushed;
+      _needsFullSync = false;
       _lastPulledAt = DateTime.now().toUtc();
       _lastSyncAt = _lastPulledAt;
       await _saveLocal();
