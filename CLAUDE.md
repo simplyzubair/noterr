@@ -22,7 +22,7 @@ These add to the global rules in `~/.claude/CLAUDE.md`. This repo is public, so 
 - The Android job never runs for pull requests, and the repo requires approval before running workflows from outside contributors, so no stranger's code runs on the PC. Keep it that way: the repo is public.
 - Manual fallback: `.\scripts\release-android.ps1 -Upload` builds and uploads to the release for the version in `pubspec.yaml`. It refuses to publish an APK not signed with the release key.
 - Installed apps check for a new release at start, every 3 hours and when brought back to the front. Windows installs silently after one click on Update; Android downloads in the app and shows the system Install button (one tap; Android requires it outside the Play Store).
-- Install or update the Windows app from a terminal: `.\scripts\noterr.ps1 install`.
+- Install or update the Windows app on any PC with one line in PowerShell: `irm https://raw.githubusercontent.com/simplyzubair/noterr/master/scripts/install.ps1 | iex`. In the repo, `.\scripts\noterr.ps1 install|version|doctor|uninstall` does the same plus more.
 
 ## Hosting
 
