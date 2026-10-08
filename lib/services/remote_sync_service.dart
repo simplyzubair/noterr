@@ -195,7 +195,9 @@ class CloudflareRemoteSyncService implements RemoteSyncService {
   ) async {
     final response = await http
         .post(
-          _baseUri.resolve(path),
+          // Append rather than resolve: resolve('/push') would drop a base
+          // path such as https://noterr.skillsgeek.com/sync.
+          _baseUri.replace(path: '${_baseUri.path}$path'),
           headers: const {'content-type': 'application/json'},
           body: jsonEncode(body),
         )

@@ -91,6 +91,7 @@ class NoterrController extends ChangeNotifier {
   Timer? _syncTimer;
   Timer? _dailyTimer;
   Timer? _obsidianPollTimer;
+  Timer? _cloudRetryTimer;
   String? _weeklyRunKey;
   String _deviceId = '';
   String? _activeVaultSalt;
@@ -1010,6 +1011,7 @@ class NoterrController extends ChangeNotifier {
     _syncTimer?.cancel();
     _dailyTimer?.cancel();
     _obsidianPollTimer?.cancel();
+    _cloudRetryTimer?.cancel();
     await _remoteSub?.cancel();
     await _localVault.clearSavedPassphrase();
     await _remote.closeSyncProfile();
@@ -1022,6 +1024,7 @@ class NoterrController extends ChangeNotifier {
     _syncTimer?.cancel();
     _dailyTimer?.cancel();
     _obsidianPollTimer?.cancel();
+    _cloudRetryTimer?.cancel();
     await _remoteSub?.cancel();
     _key = null;
     _notes.clear();
@@ -1047,18 +1050,39 @@ class NoterrController extends ChangeNotifier {
         }
       }
 
+      // The cloud account comes from the PIN, so a mistyped PIN would sign
+      // in to a new, empty account. If this device already has notes, refuse
+      // a PIN that can't open them.
+      if (await _localVault.hasVault() &&
+          await _loadWithOtherSalt(cleanPassphrase, '', [cachedSalt]) ==
+              null) {
+        throw StateError('Wrong PIN.');
+      }
+
+      // First device to sync: the cloud adopts this vault's salt, so its
+      // notes open as they are.
       final fallbackSalt =
-          await _localVault.readCachedVaultSalt() ?? VaultCrypto.randomSalt();
-      await _remote.openSyncProfile(
-        cleanPassphrase,
-        vaultSalt: fallbackSalt,
-      );
-      final cloudSalt = await _remote.getOrCreateVaultSalt();
+          cachedSalt ?? await _localVault.getOrCreateLocalSalt();
+      final String cloudSalt;
+      try {
+        await _remote.openSyncProfile(
+          cleanPassphrase,
+          vaultSalt: fallbackSalt,
+        );
+        cloudSalt = await _remote.getOrCreateVaultSalt();
+      } catch (_) {
+        // Sync server unreachable (offline, server down). Open this device's
+        // notes now; _finishUnlock retries the cloud in the background.
+        await _openLocalVault(cleanPassphrase, fallbackSalt);
+        await _finishUnlock(cleanPassphrase);
+        return;
+      }
       await _localVault.saveCachedVaultSalt(cloudSalt);
       await _openLocalVault(
         cleanPassphrase,
         cloudSalt,
         allowEmptyCloudRecovery: true,
+        migrateFromSalts: [cachedSalt],
       );
       await _finishUnlock(cleanPassphrase);
       return;
@@ -1083,10 +1107,10 @@ class NoterrController extends ChangeNotifier {
     String passphrase,
     String salt, {
     bool allowEmptyCloudRecovery = false,
+    List<String?> migrateFromSalts = const [],
   }) async {
     _key = await VaultCrypto.deriveKey(passphrase: passphrase, salt: salt);
     _activeVaultSalt = salt;
-
     LocalVaultSnapshot snapshot;
     try {
       snapshot = await _localVault.load(_key!);
@@ -1097,14 +1121,47 @@ class NoterrController extends ChangeNotifier {
         rethrow;
       }
       await _localVault.backUpVault(suffix: 'local-only-backup');
-      snapshot = const LocalVaultSnapshot(notes: [], lastPulledAt: null);
+      // The cloud uses a different salt than this device's vault, which is
+      // normal for the second device to join sync. Open the vault with the
+      // salt it was written with, then re-lock it under the cloud's salt and
+      // upload everything, instead of starting this device empty.
+      final migrated = await _loadWithOtherSalt(passphrase, salt, migrateFromSalts);
+      if (migrated != null) {
+        snapshot = LocalVaultSnapshot(notes: migrated.notes, lastPulledAt: null);
+        _dirtyNoteIds.addAll(migrated.notes.map((note) => note.id));
+      } else {
+        snapshot = const LocalVaultSnapshot(notes: [], lastPulledAt: null);
+      }
     }
     _notes
       ..clear()
       ..addAll(snapshot.notes);
     _lastPulledAt = snapshot.lastPulledAt;
+    if (_dirtyNoteIds.isNotEmpty) await _saveLocal();
     _syncState = hasCloud ? SyncState.idle : SyncState.offline;
     notifyListeners();
+  }
+
+  Future<LocalVaultSnapshot?> _loadWithOtherSalt(
+    String passphrase,
+    String cloudSalt,
+    List<String?> candidates,
+  ) async {
+    final tried = <String>{cloudSalt};
+    for (final candidate in [
+      ...candidates,
+      await _localVault.getOrCreateLocalSalt(),
+    ]) {
+      if (candidate == null || !tried.add(candidate)) continue;
+      try {
+        final key =
+            await VaultCrypto.deriveKey(passphrase: passphrase, salt: candidate);
+        return await _localVault.load(key);
+      } catch (_) {
+        // Not this one.
+      }
+    }
+    return null;
   }
 
   Future<void> _finishUnlock(String passphrase) async {
@@ -1134,8 +1191,12 @@ class NoterrController extends ChangeNotifier {
 
   Future<void> _finishCloudUnlock(String passphrase) async {
     try {
+      final previousSalt = _activeVaultSalt;
+      final previousCachedSalt = await _localVault.readCachedVaultSalt();
+      // First device to sync: the cloud adopts the salt this vault already
+      // uses, so nothing needs re-locking.
       final fallbackSalt =
-          await _localVault.readCachedVaultSalt() ?? VaultCrypto.randomSalt();
+          previousSalt ?? previousCachedSalt ?? VaultCrypto.randomSalt();
       await _remote.openSyncProfile(passphrase, vaultSalt: fallbackSalt);
       final salt = await _remote.getOrCreateVaultSalt();
       await _localVault.saveCachedVaultSalt(salt);
@@ -1148,6 +1209,7 @@ class NoterrController extends ChangeNotifier {
           passphrase,
           salt,
           allowEmptyCloudRecovery: true,
+          migrateFromSalts: [previousSalt, previousCachedSalt],
         );
       }
       await syncNow();
@@ -1155,6 +1217,15 @@ class NoterrController extends ChangeNotifier {
       _startSyncTimer();
     } catch (error) {
       _setError(error.toString());
+      // Offline or server down: keep trying, so the device joins sync as soon
+      // as it can reach the server.
+      _cloudRetryTimer?.cancel();
+      if (_key != null) {
+        _cloudRetryTimer = Timer(
+          const Duration(minutes: 1),
+          () => unawaited(_finishCloudUnlock(passphrase)),
+        );
+      }
     }
   }
 
@@ -1883,6 +1954,7 @@ class NoterrController extends ChangeNotifier {
     _syncTimer?.cancel();
     _dailyTimer?.cancel();
     _obsidianPollTimer?.cancel();
+    _cloudRetryTimer?.cancel();
     _remoteSub?.cancel();
     super.dispose();
   }

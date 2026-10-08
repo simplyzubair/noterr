@@ -104,6 +104,12 @@ class LocalVault {
     await file.copy(backup.path);
   }
 
+  /// Whether this device already has a saved (non-empty) vault.
+  Future<bool> hasVault() async {
+    final file = await _vaultFile();
+    return await file.exists() && (await file.length()) > 0;
+  }
+
   Future<LocalVaultSnapshot> load(SecretKey key) async {
     final file = await _vaultFile();
     if (!await file.exists()) {

@@ -1,0 +1,20 @@
+# Noterr on Contabo, deployed by Coolify (app "noterr"). Both services listen
+# on localhost only; the host nginx (deploy/nginx/) is the only way in, over
+# HTTPS: / -> website, /sync/ -> sync server.
+services:
+  website:
+    build: ./website
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3003:80"
+
+  sync:
+    build: ./server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3004:8080"
+    volumes:
+      - noterr-sync-data:/data
+
+volumes:
+  noterr-sync-data:
