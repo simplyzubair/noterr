@@ -46,6 +46,13 @@
     margin-left: auto; background: var(--accent); color: var(--accent-text);
     border-radius: 999px; padding: 6px 14px; font-size: .9rem; font-weight: 600; white-space: nowrap;
   }
+  .cli { margin-top: 22px; text-align: left; }
+  .cli p { margin: 0 0 6px; color: var(--muted); font-size: .9rem; }
+  .cli code {
+    display: block; padding: 12px 14px; border-radius: 10px; overflow-x: auto;
+    background: var(--card); border: 1px solid var(--border);
+    font: .85rem/1.4 ui-monospace, Consolas, monospace; white-space: nowrap;
+  }
   footer { margin-top: 28px; color: var(--muted); font-size: .85rem; }
   footer a { color: var(--accent); }
 </style>
@@ -67,6 +74,11 @@
       <span><span class="label">Android</span><br><span class="sub" id="android-sub">APK (arm64)</span></span>
       <span class="btn">Download</span>
     </a>
+  </div>
+
+  <div class="cli">
+    <p>Or install on Windows from PowerShell:</p>
+    <code>irm https://raw.githubusercontent.com/simplyzubair/noterr/master/scripts/install.ps1 | iex</code>
   </div>
 
   <footer>
