@@ -159,6 +159,88 @@ class ObsidianSyncService {
     _lastKnownModified[file.path] = await file.lastModified();
   }
 
+  // ── Other notes (stickies, checklists) ────────────────────────────────────
+
+  static const notesSubfolder = 'Notes';
+
+  Directory _notesDir(ObsidianSyncConfig cfg) {
+    final sep = Platform.pathSeparator;
+    final folder = cfg.dailyNotesFolder.trim().isEmpty
+        ? 'Noterr'
+        : cfg.dailyNotesFolder.trim();
+    return Directory('${cfg.vaultPath}$sep$folder$sep$notesSubfolder');
+  }
+
+  /// Mirrors one non-daily note to `<Noterr folder>/Notes/<title> (<id>).md`.
+  /// One-way: Noterr owns these files and rewrites them whole. The id in the
+  /// name keeps a renamed note on one file. A deleted or archived note's file
+  /// is removed. Unchanged notes aren't rewritten, so LiveSync stays quiet.
+  Future<void> exportNote(Note note) async {
+    final cfg = _config;
+    if (cfg == null || !cfg.isConfigured) return;
+    final dir = _notesDir(cfg);
+    final shortId = note.id.length > 8 ? note.id.substring(0, 8) : note.id;
+    final idTag = '($shortId).md';
+    final remove = note.isDeleted || note.isArchived;
+    final target = File(
+      '${dir.path}${Platform.pathSeparator}${_safeFileName(note.title)} $idTag',
+    );
+
+    if (await dir.exists()) {
+      await for (final entity in dir.list()) {
+        if (entity is File &&
+            entity.path.endsWith(idTag) &&
+            (remove || entity.path != target.path)) {
+          await entity.delete();
+        }
+      }
+    }
+    if (remove) return;
+
+    final content = _noteMarkdown(note);
+    if (await target.exists() && await target.readAsString() == content) return;
+    await dir.create(recursive: true);
+    await target.writeAsString(content, flush: true);
+  }
+
+  String _noteMarkdown(Note note) {
+    final title = note.title.trim().isEmpty ? 'Untitled' : note.title.trim();
+    final b = StringBuffer()
+      ..writeln('---')
+      ..writeln('noterr_id: ${note.id}')
+      ..writeln('board: ${note.boardName}');
+    if (note.tags.isNotEmpty) {
+      b.writeln('tags: [${note.tags.map((t) => t.replaceAll(',', ' ')).join(', ')}]');
+    }
+    b
+      ..writeln('updated: ${note.updatedAt.toUtc().toIso8601String()}')
+      ..writeln('---')
+      ..writeln()
+      ..writeln('# $title')
+      ..writeln();
+    final body = note.body.trim();
+    if (body.isNotEmpty) {
+      b
+        ..writeln(body)
+        ..writeln();
+    }
+    for (final item in note.checklist) {
+      final text = item.text.trim();
+      if (text.isEmpty) continue;
+      b.writeln('- [${item.done ? 'x' : ' '}] $text');
+    }
+    return '${b.toString().trimRight()}\n';
+  }
+
+  static String _safeFileName(String title) {
+    final cleaned = title
+        .replaceAll(RegExp(r'[\\/:*?"<>|#^\[\]\n\r\t]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (cleaned.isEmpty) return 'Untitled';
+    return cleaned.length > 60 ? cleaned.substring(0, 60).trim() : cleaned;
+  }
+
   // ── Weekly summary page ───────────────────────────────────────────────────
 
   static const weeklyFolder = 'Weekly Summary';

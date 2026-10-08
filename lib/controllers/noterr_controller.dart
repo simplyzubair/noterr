@@ -126,11 +126,8 @@ class NoterrController extends ChangeNotifier {
 
   Future<void> saveObsidianConfig(ObsidianSyncConfig config) async {
     await _obsidian.saveConfig(config);
-    // Immediately push today's note if unlocked.
-    final today = todayTodoNote;
-    if (today != null) {
-      unawaited(_obsidianPush(today));
-    }
+    // Immediately write every note to the new vault if unlocked.
+    unawaited(_obsidianSyncAll());
     _startObsidianPollTimer();
     notifyListeners();
   }
@@ -1178,10 +1175,7 @@ class NoterrController extends ChangeNotifier {
     await _publishWidget();
     // Load Obsidian config and start sync.
     await _obsidian.loadConfig();
-    final today = todayTodoNote;
-    if (today != null && _obsidian.isConfigured) {
-      unawaited(_obsidianPush(today));
-    }
+    unawaited(_obsidianSyncAll());
     _startObsidianPollTimer();
     unawaited(maybeWriteWeeklySummary());
     if (hasCloud) {
@@ -1275,6 +1269,39 @@ class NoterrController extends ChangeNotifier {
       await _obsidian.push(note, note.dayKey);
     } catch (e) {
       debugPrint('[ObsidianSync] push error: $e');
+    }
+  }
+
+  /// Mirror a non-daily note to Obsidian's Notes folder (one-way).
+  Future<void> _obsidianExport(Note note) async {
+    if (!_obsidian.isConfigured) return;
+    try {
+      await _obsidian.exportNote(note);
+    } catch (e) {
+      debugPrint('[ObsidianSync] export error: $e');
+    }
+  }
+
+  bool _isObsidianExportable(Note note) =>
+      !_isDailyBoard(note) &&
+      note.boardName != 'History' &&
+      note.boardName != weeklySummaryBoard;
+
+  /// Brings Obsidian up to date with every note, including ones that arrived
+  /// from other devices through sync: today's and tomorrow's boards go to
+  /// their daily files, everything else to the Notes folder. Unchanged files
+  /// aren't rewritten.
+  Future<void> _obsidianSyncAll() async {
+    if (!_obsidian.isConfigured || _key == null) return;
+    final today = _dayOnly(DateTime.now());
+    for (final note in List<Note>.of(_notes)) {
+      if (_isDailyBoard(note)) {
+        if (!note.isDeleted && !note.isArchived && !note.dayKey.isBefore(today)) {
+          await _obsidianPush(note);
+        }
+      } else if (_isObsidianExportable(note)) {
+        await _obsidianExport(note);
+      }
     }
   }
 
@@ -1433,6 +1460,8 @@ class NoterrController extends ChangeNotifier {
       await _publishWidget();
       notifyListeners();
       _setSync(SyncState.idle);
+      // Notes from other devices land in Obsidian too.
+      if (remoteNotes.isNotEmpty) unawaited(_obsidianSyncAll());
     } catch (error) {
       _setError(error.toString());
     }
@@ -1483,6 +1512,8 @@ class NoterrController extends ChangeNotifier {
     // Push to Obsidian if this is the today daily note.
     if (_isDailyBoard(note) && !note.isDeleted && !note.isArchived) {
       unawaited(_obsidianPush(note));
+    } else if (_isObsidianExportable(note)) {
+      unawaited(_obsidianExport(note));
     }
     if (!hasCloud || _key == null) return;
     try {
