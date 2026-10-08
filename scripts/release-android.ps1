@@ -18,9 +18,26 @@
 
 .EXAMPLE
     .\scripts\release-android.ps1 -Upload
+
+.PARAMETER Version
+    Version name to build, for example 0.4.57. Defaults to pubspec.yaml.
+    CI passes the version it computed so Windows and Android match.
+
+.PARAMETER BuildNumber
+    Android versionCode base. Defaults to pubspec.yaml's +N.
+
+.PARAMETER Robot
+    Log in to Infisical with the machine identity saved by
+    scripts\ci\save-infisical-identity.ps1 instead of your own session. The
+    GitHub runner on this PC uses this.
 #>
 [CmdletBinding()]
-param([switch]$Upload)
+param(
+    [switch]$Upload,
+    [string]$Version,
+    [int]$BuildNumber,
+    [switch]$Robot
+)
 
 $ErrorActionPreference = 'Stop'
 $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
@@ -61,7 +78,11 @@ if (-not (Get-Command infisical -ErrorAction SilentlyContinue)) {
     throw 'Infisical CLI not installed. Run: winget install infisical.infisical'
 }
 
-$version = ((Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$').Matches[0].Groups[1].Value -replace '\+.*', '').Trim()
+$pubspecVersion = (Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$').Matches[0].Groups[1].Value.Trim()
+$version = if ($Version) { $Version } else { ($pubspecVersion -replace '\+.*', '').Trim() }
+if (-not $BuildNumber) {
+    $BuildNumber = if ($pubspecVersion -match '\+(\d+)$') { [int]$matches[1] } else { 1 }
+}
 $tag = "v$version"
 Write-Host "version : $version"
 
@@ -70,10 +91,29 @@ $flutter = Find-Flutter
 # keystore lands in build\signing.
 $signingDir = Join-Path $Root 'build\signing'
 
+$authArgs = @()
+if ($Robot) {
+    $idFile = Join-Path $env:LOCALAPPDATA 'noterr-ci\infisical-identity.xml'
+    if (-not (Test-Path $idFile)) {
+        throw 'No saved Infisical robot. Run scripts\ci\save-infisical-identity.ps1 first.'
+    }
+    # Saved with Export-Clixml, so the secret is encrypted for this Windows user.
+    $id = Import-Clixml $idFile
+    $secret = [Net.NetworkCredential]::new('', $id.ClientSecret).Password
+    $token = (& infisical login --method=universal-auth --client-id=$($id.ClientId) `
+        --client-secret=$secret --domain=$Domain --silent --plain 2>$null | Out-String).Trim()
+    $secret = $null
+    if (-not $token) { throw 'Infisical robot login failed.' }
+    $authArgs = @("--token=$token")
+}
+
 try {
     Write-Host 'building with keys from Infisical ...'
-    & infisical run --projectId $Project --env prod --domain $Domain --silent `
-        --command "`"$flutter`" build apk --release --split-per-abi --dart-define=NOTERR_APP_VERSION=$version"
+    $build = "`"$flutter`" build apk --release --split-per-abi " +
+             "--build-name=$version --build-number=$BuildNumber " +
+             "--dart-define=NOTERR_APP_VERSION=$version"
+    & infisical run @authArgs --projectId $Project --env prod --domain $Domain --silent `
+        --command $build
     if ($LASTEXITCODE -ne 0) { throw "Build failed (exit $LASTEXITCODE)." }
 } finally {
     # The decoded keystore must not stay on disk.

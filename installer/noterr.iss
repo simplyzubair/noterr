@@ -1,5 +1,9 @@
 #define MyAppName "Noterr"
-#define MyAppVersion "0.4.1"
+; CI passes the version with /DMyAppVersion=x.y.z; this is the fallback
+; for local builds.
+#ifndef MyAppVersion
+  #define MyAppVersion "0.4.1"
+#endif
 #define MyAppPublisher "Noterr"
 #define MyAppExeName "noterr.exe"
 

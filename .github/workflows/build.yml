@@ -1,25 +1,49 @@
 name: Build and Release Noterr
 
+# Every push to master that changes the app becomes a release: the version is
+# <major>.<minor> from pubspec.yaml plus the run number, so nobody bumps
+# versions or pushes tags by hand. Installed apps see the new release and
+# update.
 on:
   push:
     branches: [master]
-    tags:
-      - 'v*'            # triggers a GitHub Release when you push v0.2.0, v0.3.0, etc.
+    paths-ignore: ['**.md', 'website/**', 'deploy/**', '.env.example']
   pull_request:
     branches: [master]
   workflow_dispatch:
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  # Android is built and signed on the owner's PC by
-  # scripts/release-android.ps1, with keys from Infisical. GitHub holds
-  # no signing secrets, so there is no Android job here.
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      build: ${{ steps.v.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          base=$(grep '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//' | cut -d. -f1,2)
+          echo "version=$base.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          # Android versionCode must always grow; +100 keeps it above the
+          # hand-set build numbers used before this scheme.
+          echo "build=$(( ${{ github.run_number }} + 100 ))" >> "$GITHUB_OUTPUT"
+          echo "version $base.${{ github.run_number }}"
 
   # ────────────────────────────────────────────────────────────────
   # Windows
   # ────────────────────────────────────────────────────────────────
   windows:
     name: Windows App
+    needs: version
     runs-on: windows-latest
+    env:
+      APP_VERSION: ${{ needs.version.outputs.version }}
+      APP_BUILD: ${{ needs.version.outputs.build }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,23 +78,18 @@ jobs:
       - name: Test
         run: flutter test
 
-      - name: Read version from pubspec
-        id: version
-        shell: pwsh
-        run: |
-          $v = (Get-Content pubspec.yaml | Where-Object { $_ -match '^version:' } | Select-Object -First 1) -replace 'version:\s*', '' -replace '\+.*', ''
-          "app_version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-
       - name: Build Windows release
+        shell: pwsh
         run: >
           flutter build windows --release
-          --dart-define=NOTERR_APP_VERSION="${{ steps.version.outputs.app_version }}"
+          --build-name=$env:APP_VERSION --build-number=$env:APP_BUILD
+          --dart-define=NOTERR_APP_VERSION=$env:APP_VERSION
 
       - name: Zip Windows app
         shell: pwsh
         run: |
           Compress-Archive -Path build/windows/x64/runner/Release/* `
-            -DestinationPath noterr-windows-v${{ steps.version.outputs.app_version }}.zip -Force
+            -DestinationPath noterr-windows-v$env:APP_VERSION.zip -Force
 
       - name: Install Inno Setup
         shell: pwsh
@@ -78,13 +97,13 @@ jobs:
 
       - name: Build Windows installer
         shell: pwsh
-        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/noterr.iss'
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:APP_VERSION" installer/noterr.iss'
 
       - name: Rename installer for release
         shell: pwsh
         run: |
           Copy-Item installer/dist/NoterrSetup.exe `
-            NoterrSetup-v${{ steps.version.outputs.app_version }}.exe
+            NoterrSetup-v$env:APP_VERSION.exe
 
       - name: Upload Windows zip artifact
         uses: actions/upload-artifact@v4
@@ -99,12 +118,40 @@ jobs:
           path: NoterrSetup-v*.exe
 
   # ────────────────────────────────────────────────────────────────
-  # GitHub Release  (only on version tags like v0.2.0)
+  # Android: built and signed on the owner's PC (self-hosted runner),
+  # because the signing keys live in Infisical, which is Tailscale only.
+  # Never runs for pull requests, so outside code can't reach that PC.
+  # ────────────────────────────────────────────────────────────────
+  android:
+    name: Android APK
+    needs: [version, windows]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: [self-hosted, windows, noterr-android]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and sign with keys from Infisical
+        shell: powershell
+        run: >
+          ./scripts/release-android.ps1 -Robot
+          -Version ${{ needs.version.outputs.version }}
+          -BuildNumber ${{ needs.version.outputs.build }}
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: noterr-android-apk
+          path: noterr-android-arm64-v*.apk
+
+  # ────────────────────────────────────────────────────────────────
+  # GitHub Release, for every push to master
   # ────────────────────────────────────────────────────────────────
   release:
     name: Publish GitHub Release
-    needs: [windows]
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, windows, android]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -124,10 +171,13 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "Noterr ${{ github.ref_name }}"
+          tag_name: v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Noterr v${{ needs.version.outputs.version }}
           draft: false
           prerelease: false
           generate_release_notes: true
           files: |
             dist/noterr-windows-installer/NoterrSetup-*.exe
             dist/noterr-windows-release/noterr-windows-*.zip
+            dist/noterr-android-apk/noterr-android-arm64-*.apk

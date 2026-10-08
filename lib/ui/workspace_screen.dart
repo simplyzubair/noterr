@@ -44,6 +44,11 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   final Set<String> _shownReminderKeys = {};
   UpdateInfo? _updateInfo;
   bool _updateDismissed = false;
+  // Every push to master is a release, so look again regularly and when the
+  // app comes back to the front, not only at startup.
+  Timer? _updateTimer;
+  AppLifecycleListener? _updateLifecycle;
+  DateTime? _lastUpdateCheck;
 
   @override
   void initState() {
@@ -63,6 +68,14 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     );
     // Check for updates in the background after a short delay.
     Future.delayed(const Duration(seconds: 8), _checkForUpdate);
+    _updateTimer = Timer.periodic(const Duration(hours: 3), (_) => _checkForUpdate());
+    _updateLifecycle = AppLifecycleListener(onResume: () {
+      final last = _lastUpdateCheck;
+      if (last == null ||
+          DateTime.now().difference(last) > const Duration(minutes: 30)) {
+        unawaited(_checkForUpdate());
+      }
+    });
     unawaited(
       EveningReminderService.instance.start(
         widget.controller,
@@ -78,15 +91,23 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       trayManager.removeListener(this);
     }
     _reminderTimer?.cancel();
+    _updateTimer?.cancel();
+    _updateLifecycle?.dispose();
     EveningReminderService.instance.stop();
     super.dispose();
   }
 
   Future<void> _checkForUpdate() async {
+    _lastUpdateCheck = DateTime.now();
     final info = await UpdateService.checkForUpdate();
-    if (mounted && info != null) {
-      setState(() => _updateInfo = info);
-    }
+    if (!mounted || info == null) return;
+    // A newer release than the one already offered shows the bar again,
+    // even if the user closed it.
+    final isNewOffer = info.latestVersion != _updateInfo?.latestVersion;
+    setState(() {
+      _updateInfo = info;
+      if (isNewOffer) _updateDismissed = false;
+    });
   }
 
   bool get _isDesktop =>

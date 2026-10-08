@@ -16,10 +16,12 @@ These add to the global rules in `~/.claude/CLAUDE.md`. This repo is public, so 
 
 ## Releases
 
-- GitHub Actions builds the Windows app only. It holds no signing secrets.
-- The Android app is built and signed on Zubair's PC, with keys pulled from Infisical: `infisical run --env=prod -- <build command>`. GitHub can't reach Infisical (Tailscale only), and Coolify runs web apps, not Android builds, so the PC does it.
-- The signed APK is then uploaded to the GitHub release.
-- Release steps: bump `version:` in `pubspec.yaml` and `MyAppVersion` in `installer/noterr.iss`, push, push tag `vX.Y.Z`, wait for CI to publish the release, then run `.\scripts\release-android.ps1 -Upload`. The script refuses to publish an APK not signed with the release key.
+- Every push to `master` that changes the app is a release. CI sets the version to `<major>.<minor>` from `pubspec.yaml` plus the run number (for example `0.4.77`), builds Windows and Android, tags `vX.Y.Z` and publishes the release. Nobody bumps versions or pushes tags by hand. Only change `pubspec.yaml`'s major.minor for a bigger version jump. Pushes that only touch `*.md`, `website/`, `deploy/` or `.env.example` don't release.
+- GitHub-hosted runners build Windows and hold no secrets.
+- Android is built on Zubair's PC by a self-hosted runner (label `noterr-android`, folder `D:\Runners\noterr`, started at logon by the scheduled task "Noterr GitHub runner"). It runs `scripts/release-android.ps1 -Robot`, which logs in to Infisical as a machine identity saved (encrypted for the Windows user) by `scripts/ci/save-infisical-identity.ps1`. GitHub can't reach Infisical (Tailscale only), so the PC does it. If the PC is off, the Android job waits (up to 24 hours) and the release waits with it.
+- The Android job never runs for pull requests, and the repo requires approval before running workflows from outside contributors, so no stranger's code runs on the PC. Keep it that way: the repo is public.
+- Manual fallback: `.\scripts\release-android.ps1 -Upload` builds and uploads to the release for the version in `pubspec.yaml`. It refuses to publish an APK not signed with the release key.
+- Installed apps check for a new release at start, every 3 hours and when brought back to the front. Windows installs silently after one click on Update; Android downloads in the app and shows the system Install button (one tap; Android requires it outside the Play Store).
 - Install or update the Windows app from a terminal: `.\scripts\noterr.ps1 install`.
 
 ## Hosting
