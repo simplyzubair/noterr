@@ -24,8 +24,19 @@ $Repo     = 'simplyzubair/noterr'
 $Dir      = 'D:\Runners\noterr'
 $TaskName = 'Noterr GitHub runner'
 
-& gh auth status *> $null
-if ($LASTEXITCODE -ne 0) { throw 'Run "gh auth login" first.' }
+# Native tools write to stderr; in Windows PowerShell 5 that is fatal under
+# 'Stop', so check exit codes instead while calling them.
+$ErrorActionPreference = 'Continue'
+$null = & gh auth status 2>&1
+if ($LASTEXITCODE -ne 0 -and -not $env:GH_TOKEN) {
+    # Fall back to the GitHub login git already uses for pushing. Ask through
+    # Git's bash: Windows PowerShell can prepend a byte-order mark when piping
+    # to git, which then rejects the request.
+    $bash = Join-Path (Split-Path (Split-Path (Get-Command git).Source)) 'bin\bash.exe'
+    $env:GH_TOKEN = (& $bash -c "printf 'protocol=https\nhost=github.com\n\n' | GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git credential fill 2>/dev/null | sed -n 's/^password=//p'" | Out-String).Trim()
+}
+$null = & gh api user --jq .login 2>&1
+if ($LASTEXITCODE -ne 0) { throw 'No GitHub login. Run "gh auth login" first.' }
 
 # 1. Download
 if (-not (Test-Path (Join-Path $Dir 'config.cmd'))) {
@@ -70,5 +81,5 @@ Start-ScheduledTask -TaskName $TaskName
     -f approval_policy=all_external_contributors | Out-Null
 
 Start-Sleep -Seconds 10
-$state = (& gh api "repos/$Repo/actions/runners" --jq '.runners[] | "\(.name) \(.status)"')
-Write-Host "runner: $state"
+$runners = & gh api "repos/$Repo/actions/runners" | ConvertFrom-Json
+foreach ($r in $runners.runners) { Write-Host "runner: $($r.name) $($r.status)" }

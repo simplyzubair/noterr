@@ -134,10 +134,19 @@ jobs:
 
       - name: Build and sign with keys from Infisical
         shell: powershell
-        run: >
-          ./scripts/release-android.ps1 -Robot
-          -Version ${{ needs.version.outputs.version }}
-          -BuildNumber ${{ needs.version.outputs.build }}
+        # Run in its own hidden console. When the build ends, a tool in the
+        # chain sends Ctrl+C to its console group; sharing the runner's console
+        # made the runner itself shut down mid-job.
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'android-build.log'
+          $p = Start-Process powershell -WindowStyle Hidden -Wait -PassThru `
+            -RedirectStandardOutput $log -RedirectStandardError "$log.err" `
+            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass',
+              '-File', 'scripts/release-android.ps1', '-Robot',
+              '-Version', '${{ needs.version.outputs.version }}',
+              '-BuildNumber', '${{ needs.version.outputs.build }}')
+          Get-Content $log, "$log.err" -ErrorAction SilentlyContinue
+          exit $p.ExitCode
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
