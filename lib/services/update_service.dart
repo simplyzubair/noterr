@@ -140,6 +140,14 @@ class UpdateService {
       return apk['browser_download_url'] as String?;
     }
 
+    if (Platform.isMacOS) {
+      final dmg = assets.firstWhere(
+        (a) => (a['name'] as String? ?? '').endsWith('.dmg'),
+        orElse: () => <String, dynamic>{},
+      );
+      return dmg['browser_download_url'] as String?;
+    }
+
     if (Platform.isWindows) {
       final exe = assets.firstWhere(
         (a) => (a['name'] as String? ?? '').endsWith('.exe'),

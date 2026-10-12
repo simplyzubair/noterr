@@ -118,6 +118,49 @@ jobs:
           path: NoterrSetup-v*.exe
 
   # ────────────────────────────────────────────────────────────────
+  # macOS: unsigned .dmg (no Apple Developer account). The first launch
+  # needs right-click > Open; Gatekeeper blocks a double-click.
+  # ────────────────────────────────────────────────────────────────
+  macos:
+    name: macOS App
+    needs: version
+    runs-on: macos-latest
+    env:
+      APP_VERSION: ${{ needs.version.outputs.version }}
+      APP_BUILD: ${{ needs.version.outputs.build }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build macOS release
+        run: >
+          flutter build macos --release
+          --build-name=$APP_VERSION --build-number=$APP_BUILD
+
+      - name: Package .dmg
+        run: |
+          app=$(ls -d build/macos/Build/Products/Release/*.app | head -1)
+          staging=$(mktemp -d)
+          cp -R "$app" "$staging/Noterr.app"
+          ln -s /Applications "$staging/Applications"
+          hdiutil create -volname "Noterr" -srcfolder "$staging" -ov -format UDZO             "Noterr-v$APP_VERSION.dmg"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: noterr-macos
+          path: Noterr-v*.dmg
+
+  # ────────────────────────────────────────────────────────────────
   # Android: built and signed on the owner's PC (self-hosted runner),
   # because the signing keys live in Infisical, which is Tailscale only.
   # Never runs for pull requests, so outside code can't reach that PC.
@@ -159,7 +202,7 @@ jobs:
   # ────────────────────────────────────────────────────────────────
   release:
     name: Publish GitHub Release
-    needs: [version, windows, android]
+    needs: [version, windows, macos, android]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
@@ -190,3 +233,4 @@ jobs:
             dist/noterr-windows-installer/NoterrSetup-*.exe
             dist/noterr-windows-release/noterr-windows-*.zip
             dist/noterr-android-apk/noterr-android-arm64-*.apk
+            dist/noterr-macos/Noterr-v*.dmg

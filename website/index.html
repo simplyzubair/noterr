@@ -69,6 +69,11 @@
       <span><span class="label">Windows</span><br><span class="sub" id="win-sub">Installer (.exe)</span></span>
       <span class="btn">Download</span>
     </a>
+    <a class="card" id="mac" href="https://github.com/simplyzubair/noterr/releases/latest">
+      <span class="icon" aria-hidden="true">🍎</span>
+      <span><span class="label">Mac</span><br><span class="sub" id="mac-sub">Disk image (.dmg) · first open: right-click › Open</span></span>
+      <span class="btn">Download</span>
+    </a>
     <a class="card" id="android" href="https://github.com/simplyzubair/noterr/releases/latest">
       <span class="icon" aria-hidden="true">🤖</span>
       <span><span class="label">Android</span><br><span class="sub" id="android-sub">APK (arm64)</span></span>
@@ -98,6 +103,7 @@
       const assets = rel.assets || [];
       const find = (test) => assets.find((a) => test(a.name));
       const exe = find((n) => /^NoterrSetup-.*\.exe$/.test(n));
+      const dmg = find((n) => n.endsWith('.dmg'));
       const apk = find((n) => /arm64.*\.apk$/.test(n)) || find((n) => n.endsWith('.apk'));
       const mb = (a) => (a.size / 1048576).toFixed(1) + ' MB';
 
@@ -105,6 +111,11 @@
       if (exe) {
         document.getElementById('win').href = exe.browser_download_url;
         document.getElementById('win-sub').textContent = 'Installer (.exe) · ' + mb(exe);
+      }
+      if (dmg) {
+        document.getElementById('mac').href = dmg.browser_download_url;
+        document.getElementById('mac-sub').textContent =
+          'Disk image (.dmg) · ' + mb(dmg) + ' · first open: right-click › Open';
       }
       if (apk) {
         document.getElementById('android').href = apk.browser_download_url;
