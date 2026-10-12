@@ -3,7 +3,7 @@
 These add to the global rules in `~/.claude/CLAUDE.md`. This repo is public, so anything committed is published.
 
 - Name: Noterr
-- Website: noterr.skillsgeek.com, a download page with the latest Android APK and Windows installer (planned, not set up yet: no DNS record, no nginx site)
+- Website: https://noterr.skillsgeek.com, a download page for the latest Windows, Mac and Android builds. Sync server at https://noterr.skillsgeek.com/sync.
 
 ## Secrets
 
@@ -17,7 +17,7 @@ These add to the global rules in `~/.claude/CLAUDE.md`. This repo is public, so 
 ## Releases
 
 - Every push to `master` that changes the app is a release. CI sets the version to `<major>.<minor>` from `pubspec.yaml` plus the run number (for example `0.4.77`), builds Windows and Android, tags `vX.Y.Z` and publishes the release. Nobody bumps versions or pushes tags by hand. Only change `pubspec.yaml`'s major.minor for a bigger version jump. Pushes that only touch `*.md`, `website/`, `deploy/` or `.env.example` don't release.
-- GitHub-hosted runners build Windows and hold no secrets.
+- GitHub-hosted runners build Windows and macOS and hold no secrets. The Mac app is an unsigned `.dmg` (no Apple Developer account): the first launch needs right-click > Open.
 - Android is built on Zubair's PC by a self-hosted runner (label `noterr-android`, folder `D:\Runners\noterr`, started at logon by the scheduled task "Noterr GitHub runner"). It runs `scripts/release-android.ps1 -Robot`, which logs in to Infisical as a machine identity saved (encrypted for the Windows user) by `scripts/ci/save-infisical-identity.ps1`. GitHub can't reach Infisical (Tailscale only), so the PC does it. If the PC is off, the Android job waits (up to 24 hours) and the release waits with it.
 - The Android job never runs for pull requests, and the repo requires approval before running workflows from outside contributors, so no stranger's code runs on the PC. Keep it that way: the repo is public.
 - Manual fallback: `.\scripts\release-android.ps1 -Upload` builds and uploads to the release for the version in `pubspec.yaml`. It refuses to publish an APK not signed with the release key.
@@ -29,7 +29,13 @@ These add to the global rules in `~/.claude/CLAUDE.md`. This repo is public, so 
 - Noterr is a Windows and Android app, so the app itself is never hosted.
 - Any server part (for example the sync backend or the website) goes on Contabo through Coolify. It is only open to the internet through nginx with HTTPS.
 - Coolify gets its secrets from Infisical with `/opt/infisical/scripts/sync-coolify.sh noterr`.
-- Website: Coolify app `noterr-website` (UUID `jcbbcuwysgecglkaleuazlyd`), built from `website/Dockerfile`, port mapping `127.0.0.1:3003:80` so only nginx can reach it. Host nginx config: `deploy/nginx/noterr.skillsgeek.com.conf`. HTTPS by `certbot --nginx`, same as the other sites.
+- Coolify app `noterr` (UUID `jcbbcuwysgecglkaleuazlyd`) runs `docker-compose.yml`: the website (`website/`, `127.0.0.1:3003`) and the sync server (`server/`, `127.0.0.1:3004`, SQLite in the `noterr-sync-data` volume). Only nginx reaches them. Host nginx config: `deploy/nginx/noterr.skillsgeek.com.conf` (`/` and `/sync/`, with a rate limit). HTTPS by `certbot --nginx`. The DNS record must stay "DNS only" (grey cloud).
+- The sync server stores only ciphertext. The account id is a hash of the PIN and the notes are encrypted with it on the device, so the server can't read notes or write Obsidian files.
+
+## Sync and Obsidian
+
+- Same PIN on every device = one set of notes. A device joining with existing notes re-locks them under the cloud's salt and uploads them; a PIN that can't open the device's notes is refused, so a typo can't open a new, empty account.
+- Both the PC and the phone write the Obsidian vault. Android writes through the folder picked once in the menu ("Obsidian folder"), via `VaultFsChannel.kt`. Every day gets a file in `Noterr/` (gap days say "No Noterr activity"); other notes go to `Noterr/Notes/`, weekly summaries to `Weekly Summary/`. Files already right aren't rewritten.
 
 ## How to work
 
