@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart';
 
 import '../models/note.dart';
+import 'vault_fs.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ObsidianSyncConfig
@@ -13,7 +14,8 @@ import '../models/note.dart';
 class ObsidianSyncConfig {
   const ObsidianSyncConfig({required this.vaultPath, this.dailyNotesFolder = ''});
 
-  /// Root path to the Obsidian vault directory.
+  /// Root of the Obsidian vault: a folder path on desktop, or the
+  /// `content://` tree URI of the folder picked on Android.
   final String vaultPath;
 
   /// Sub-folder inside the vault where daily notes live.
@@ -79,6 +81,22 @@ class ObsidianSyncService {
   final Map<String, DateTime> _lastKnownModified = {};
   // Config loaded at startup / after user sets vault path.
   ObsidianSyncConfig? _config;
+  VaultFs? _fs;
+
+  /// Lets tests use a fake vault.
+  set fsForTest(VaultFs fs) => _fs = fs;
+
+  VaultFs get _vault {
+    final cfg = _config;
+    if (cfg == null || !cfg.isConfigured) {
+      throw StateError('Obsidian vault path is not configured.');
+    }
+    return _fs ??= VaultFs.forRoot(cfg.vaultPath.trim());
+  }
+
+  /// The folder Noterr writes into, relative to the vault root.
+  String get _noterrFolder =>
+      (_config?.dailyNotesFolder ?? '').trim().replaceAll(r'\', '/');
 
   // ── Config persistence ────────────────────────────────────────────────────
 
@@ -86,10 +104,12 @@ class ObsidianSyncService {
     final path   = await _secureStorage.read(key: _vaultPathKey) ?? '';
     final folder = await _secureStorage.read(key: _folderKey)    ?? '';
     _config = ObsidianSyncConfig(vaultPath: path, dailyNotesFolder: folder);
+    _fs = null;
   }
 
   Future<void> saveConfig(ObsidianSyncConfig config) async {
     _config = config;
+    _fs = null;
     await _secureStorage.write(key: _vaultPathKey, value: config.vaultPath);
     await _secureStorage.write(key: _folderKey,    value: config.dailyNotesFolder);
     _lastKnownModified.clear(); // force a full sync on next call
@@ -97,6 +117,7 @@ class ObsidianSyncService {
 
   Future<void> clearConfig() async {
     _config = ObsidianSyncConfig(vaultPath: '', dailyNotesFolder: '');
+    _fs = null;
     await _secureStorage.delete(key: _vaultPathKey);
     await _secureStorage.delete(key: _folderKey);
     _lastKnownModified.clear();
@@ -107,68 +128,72 @@ class ObsidianSyncService {
 
   // ── File path helpers ─────────────────────────────────────────────────────
 
-  /// Returns the path for the given date's daily note, e.g.
-  /// /vault/Daily Notes/2026-09-29.md
-  String dailyNotePath(DateTime date, ObsidianSyncConfig cfg) {
-    final dateStr = DateFormat('yyyy-MM-dd').format(date);
-    final folder  = cfg.dailyNotesFolder.trim();
-    final dir     = folder.isEmpty
-        ? cfg.vaultPath
-        : '${cfg.vaultPath}${Platform.pathSeparator}$folder';
-    return '$dir${Platform.pathSeparator}$dateStr.md';
+  /// Vault-relative path of a day's note, e.g. `Noterr/2026-09-29.md`.
+  String _dailyRel(DateTime date) {
+    final name = '${DateFormat('yyyy-MM-dd').format(date)}.md';
+    return _noterrFolder.isEmpty ? name : '$_noterrFolder/$name';
   }
 
-  File _file(DateTime date) {
-    final cfg = _config;
-    if (cfg == null || !cfg.isConfigured) {
-      throw StateError('Obsidian vault path is not configured.');
-    }
-    return File(dailyNotePath(date, cfg));
+  /// Writes [content] unless the file already holds exactly that, so devices
+  /// writing the same notes (PC and phone) don't churn LiveSync.
+  Future<void> _writeIfChanged(String path, String content) async {
+    if (await _vault.read(path) == content) return;
+    await _vault.write(path, content);
   }
 
   // ── Push: Noterr → Obsidian ───────────────────────────────────────────────
 
   /// Write Noterr content into the daily note, preserving everything outside
   /// the `_sectionHeader … _sectionFooter` block.
-  Future<void> push(Note note, DateTime date) async {
+  Future<void> push(Note note, DateTime date) =>
+      _writeDaySection(date, _buildNoterSection(note));
+
+  /// For a day on which no device opened Noterr: a file saying so, with the
+  /// tasks that were still open, so the vault has no missing days. Leaves a
+  /// day alone if it already has a Noterr section.
+  Future<void> writeNoActivityDay(DateTime date, List<String> openTasks) async {
     if (!isConfigured) return;
-    final file = _file(date);
-    await file.parent.create(recursive: true);
-
-    // Read existing content (if any)
-    String existing = '';
-    if (await file.exists()) {
-      existing = await file.readAsString();
+    final existing = await _vault.read(_dailyRel(date)) ?? '';
+    if (existing.contains(_sectionHeader)) return;
+    final buf = StringBuffer()
+      ..writeln(_sectionHeader)
+      ..writeln()
+      ..writeln('_No Noterr activity this day._')
+      ..writeln();
+    if (openTasks.isNotEmpty) {
+      buf.writeln('Still open:');
+      for (final t in openTasks) {
+        buf.writeln('- [ ] $t');
+      }
+      buf.writeln();
     }
+    buf.write(_sectionFooter);
+    await _writeDaySection(date, buf.toString());
+  }
 
-    final noterSection = _buildNoterSection(note);
-
-    String next;
+  Future<void> _writeDaySection(DateTime date, String section) async {
+    if (!isConfigured) return;
+    final path = _dailyRel(date);
+    final existing = await _vault.read(path) ?? '';
+    final String next;
     if (existing.contains(_sectionHeader)) {
-      // Replace the existing Noterr section.
-      next = _replaceSection(existing, noterSection);
+      next = _replaceSection(existing, section);
     } else {
-      // Append the Noterr section at the bottom.
       final trimmed = existing.trimRight();
-      next = trimmed.isEmpty
-          ? noterSection
-          : '$trimmed\n\n$noterSection';
+      next = trimmed.isEmpty ? section : '$trimmed\n\n$section';
     }
-
-    await file.writeAsString(next, flush: true);
-    _lastKnownModified[file.path] = await file.lastModified();
+    await _writeIfChanged(path, next);
+    final mod = await _vault.modified(path);
+    if (mod != null) _lastKnownModified[path] = mod;
   }
 
   // ── Other notes (stickies, checklists) ────────────────────────────────────
 
   static const notesSubfolder = 'Notes';
 
-  Directory _notesDir(ObsidianSyncConfig cfg) {
-    final sep = Platform.pathSeparator;
-    final folder = cfg.dailyNotesFolder.trim().isEmpty
-        ? 'Noterr'
-        : cfg.dailyNotesFolder.trim();
-    return Directory('${cfg.vaultPath}$sep$folder$sep$notesSubfolder');
+  String get _notesRel {
+    final folder = _noterrFolder.isEmpty ? 'Noterr' : _noterrFolder;
+    return '$folder/$notesSubfolder';
   }
 
   /// Mirrors one non-daily note to `<Noterr folder>/Notes/<title> (<id>).md`.
@@ -176,31 +201,20 @@ class ObsidianSyncService {
   /// name keeps a renamed note on one file. A deleted or archived note's file
   /// is removed. Unchanged notes aren't rewritten, so LiveSync stays quiet.
   Future<void> exportNote(Note note) async {
-    final cfg = _config;
-    if (cfg == null || !cfg.isConfigured) return;
-    final dir = _notesDir(cfg);
+    if (!isConfigured) return;
+    final dir = _notesRel;
     final shortId = note.id.length > 8 ? note.id.substring(0, 8) : note.id;
     final idTag = '($shortId).md';
     final remove = note.isDeleted || note.isArchived;
-    final target = File(
-      '${dir.path}${Platform.pathSeparator}${_safeFileName(note.title)} $idTag',
-    );
+    final name = '${_safeFileName(note.title)} $idTag';
 
-    if (await dir.exists()) {
-      await for (final entity in dir.list()) {
-        if (entity is File &&
-            entity.path.endsWith(idTag) &&
-            (remove || entity.path != target.path)) {
-          await entity.delete();
-        }
+    for (final existing in await _vault.list(dir)) {
+      if (existing.endsWith(idTag) && (remove || existing != name)) {
+        await _vault.delete('$dir/$existing');
       }
     }
     if (remove) return;
-
-    final content = _noteMarkdown(note);
-    if (await target.exists() && await target.readAsString() == content) return;
-    await dir.create(recursive: true);
-    await target.writeAsString(content, flush: true);
+    await _writeIfChanged('$dir/$name', _noteMarkdown(note));
   }
 
   String _noteMarkdown(Note note) {
@@ -251,15 +265,11 @@ class ObsidianSyncService {
   /// between Noterr's markers is replaced, so anything the user adds to the
   /// page survives a rewrite.
   Future<void> writeWeeklySummary(String isoWeek, String markdown) async {
-    final cfg = _config;
-    if (cfg == null || !cfg.isConfigured) return;
-    final sep = Platform.pathSeparator;
-    final file = File('${cfg.vaultPath}$sep$weeklyFolder$sep$isoWeek.md');
-    await file.parent.create(recursive: true);
+    if (!isConfigured) return;
+    final path = '$weeklyFolder/$isoWeek.md';
     final block = '$_weeklyStart\n$markdown\n$_weeklyEnd';
 
-    var existing = '';
-    if (await file.exists()) existing = await file.readAsString();
+    final existing = await _vault.read(path) ?? '';
     final start = existing.indexOf(_weeklyStart);
     final end = start == -1 ? -1 : existing.indexOf(_weeklyEnd, start);
     final String next;
@@ -271,7 +281,7 @@ class ObsidianSyncService {
           block +
           existing.substring(end + _weeklyEnd.length);
     }
-    await file.writeAsString('${next.trimRight()}\n', flush: true);
+    await _writeIfChanged(path, '${next.trimRight()}\n');
   }
 
   // ── Pull: Obsidian → Noterr ───────────────────────────────────────────────
@@ -283,17 +293,16 @@ class ObsidianSyncService {
   /// the file's mtime without changing content.
   Future<ObsidianSyncResult> pull(Note note, DateTime date) async {
     if (!isConfigured) return const ObsidianSyncResult();
-    final file = _file(date);
-    if (!await file.exists()) return const ObsidianSyncResult();
-
-    final modified = await file.lastModified();
+    final path = _dailyRel(date);
+    final modified = await _vault.modified(path);
+    if (modified == null) return const ObsidianSyncResult();
     // Skip if we wrote this ourselves and nothing has changed since.
-    final lkm = _lastKnownModified[file.path];
+    final lkm = _lastKnownModified[path];
     if (lkm != null && !modified.isAfter(lkm)) {
       return const ObsidianSyncResult();
     }
 
-    final raw = await file.readAsString();
+    final raw = await _vault.read(path) ?? '';
     // Extract only the Noterr-managed section so we don't misparse
     // user-written headings outside our block.
     final outside = _extractOutsideSection(raw);
@@ -305,11 +314,11 @@ class ObsidianSyncService {
 
   Future<bool> hasExternalEdit(DateTime date) async {
     if (!isConfigured) return false;
-    final file = _file(date);
-    if (!await file.exists()) return false;
-    final lkm = _lastKnownModified[file.path];
+    final path = _dailyRel(date);
+    final modified = await _vault.modified(path);
+    if (modified == null) return false;
+    final lkm = _lastKnownModified[path];
     if (lkm == null) return true;
-    final modified = await file.lastModified();
     return modified.isAfter(lkm);
   }
 

@@ -92,6 +92,7 @@ class NoterrController extends ChangeNotifier {
   Timer? _dailyTimer;
   Timer? _obsidianPollTimer;
   Timer? _cloudRetryTimer;
+  bool _obsidianSyncRunning = false;
   // The first sync after joining compares every note with the server, so a
   // device that synced before (or with another server) uploads what the
   // server is missing instead of trusting its old "last pulled" time.
@@ -1297,15 +1298,63 @@ class NoterrController extends ChangeNotifier {
   /// their daily files, everything else to the Notes folder. Unchanged files
   /// aren't rewritten.
   Future<void> _obsidianSyncAll() async {
-    if (!_obsidian.isConfigured || _key == null) return;
+    if (!_obsidian.isConfigured || _key == null || _obsidianSyncRunning) return;
+    _obsidianSyncRunning = true;
+    try {
+      await _obsidianWriteDays();
+      for (final note in List<Note>.of(_notes)) {
+        if (_isObsidianExportable(note)) await _obsidianExport(note);
+      }
+    } catch (e) {
+      debugPrint('[ObsidianSync] sync-all error: $e');
+    } finally {
+      _obsidianSyncRunning = false;
+    }
+  }
+
+  /// How far back day files are filled in.
+  static const _obsidianBackfillDays = 60;
+
+  /// Writes a file for every day from the first daily board (at most
+  /// [_obsidianBackfillDays] back) up to the newest planned day, so the vault
+  /// never misses a day: days with a board get its tasks (past days from their
+  /// archived History board, which another device may have made), days on
+  /// which no device opened Noterr get a "no activity" file listing the tasks
+  /// still open. Unchanged files aren't rewritten.
+  Future<void> _obsidianWriteDays() async {
     final today = _dayOnly(DateTime.now());
-    for (final note in List<Note>.of(_notes)) {
-      if (_isDailyBoard(note)) {
-        if (!note.isDeleted && !note.isArchived && !note.dayKey.isBefore(today)) {
-          await _obsidianPush(note);
-        }
-      } else if (_isObsidianExportable(note)) {
-        await _obsidianExport(note);
+    final oldest = today.subtract(const Duration(days: _obsidianBackfillDays));
+    final byDay = <DateTime, Note>{};
+    for (final note in _notes) {
+      if (note.isDeleted || !note.supportsChecklist) continue;
+      if (!_isDailyBoard(note) && note.boardName != 'History') continue;
+      final day = note.dayKey;
+      if (day.isBefore(oldest)) continue;
+      final current = byDay[day];
+      // A live board beats an archived copy; otherwise the newest edit wins.
+      final better = current == null ||
+          (current.isArchived && !note.isArchived) ||
+          (current.isArchived == note.isArchived &&
+              note.updatedAt.isAfter(current.updatedAt));
+      if (better) byDay[day] = note;
+    }
+    if (byDay.isEmpty) return;
+
+    final days = byDay.keys.toList()..sort();
+    final last = days.last.isAfter(today) ? days.last : today;
+    List<String> openTasks = const [];
+    for (var day = days.first;
+        !day.isAfter(last);
+        day = DateTime(day.year, day.month, day.day + 1)) {
+      final board = byDay[day];
+      if (board != null) {
+        await _obsidian.push(board, day);
+        openTasks = board.checklist
+            .where((i) => !i.done && i.text.trim().isNotEmpty)
+            .map((i) => i.text.trim())
+            .toList();
+      } else if (day.isBefore(today)) {
+        await _obsidian.writeNoActivityDay(day, openTasks);
       }
     }
   }
@@ -1519,6 +1568,11 @@ class NoterrController extends ChangeNotifier {
     notifyListeners();
     // Push to Obsidian if this is the today daily note.
     if (_isDailyBoard(note) && !note.isDeleted && !note.isArchived) {
+      unawaited(_obsidianPush(note));
+    } else if (note.boardName == 'History' &&
+        note.supportsChecklist &&
+        !note.isDeleted) {
+      // A day just ended: write its final state to that day's file.
       unawaited(_obsidianPush(note));
     } else if (_isObsidianExportable(note)) {
       unawaited(_obsidianExport(note));

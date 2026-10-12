@@ -15,8 +15,19 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var vaultFs: VaultFsChannel? = null
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (vaultFs?.onActivityResult(requestCode, resultCode, data) == true) return
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        vaultFs = VaultFsChannel(this).also {
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "noterr/vaultfs")
+                .setMethodCallHandler(it)
+        }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "noterr/updater"

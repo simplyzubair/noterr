@@ -17,6 +17,7 @@ import '../services/obsidian_sync_service.dart';
 import '../services/startup_service.dart';
 import '../services/sticky_window_service.dart';
 import '../services/update_service.dart';
+import '../services/vault_fs.dart';
 import 'note_colors.dart';
 import 'plans_screen.dart';
 
@@ -349,6 +350,39 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     );
   }
 
+  /// Android: pick the Obsidian vault folder once with the system picker.
+  /// Noterr then writes the day files and notes there, like the PC does, and
+  /// LiveSync carries them to the other devices.
+  Future<void> _pickAndroidObsidianFolder() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final current = widget.controller.obsidian.config;
+    final folder = (current?.dailyNotesFolder.trim().isNotEmpty ?? false)
+        ? current!.dailyNotesFolder.trim()
+        : 'Noterr';
+    String? tree;
+    try {
+      tree = await SafVaultFs.pickFolder();
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Could not open the folder picker: $e')));
+      return;
+    }
+    if (tree == null) return;
+    // Check the folder is writable before saving it.
+    try {
+      final fs = VaultFs.forRoot(tree);
+      await fs.list('');
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Noterr cannot use that folder: $e')));
+      return;
+    }
+    await widget.controller.saveObsidianConfig(
+      ObsidianSyncConfig(vaultPath: tree, dailyNotesFolder: folder),
+    );
+    messenger.showSnackBar(
+      SnackBar(content: Text('Obsidian folder set. Notes go to "$folder".')),
+    );
+  }
+
   Future<void> _openObsidianSettings() async {
     final cfg = widget.controller.obsidian.config;
     final vaultController  = TextEditingController(text: cfg?.vaultPath ?? '');
@@ -500,6 +534,8 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
         _openDailyReview();
       case 'templates':
         _openTemplates();
+      case 'obsidian':
+        unawaited(_pickAndroidObsidianFolder());
       case 'settings':
         _openSettings();
     }
@@ -794,6 +830,14 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                       title: Text('Templates'),
                     ),
                   ),
+                  if (Platform.isAndroid)
+                    const PopupMenuItem(
+                      value: 'obsidian',
+                      child: ListTile(
+                        leading: Icon(Icons.folder_outlined),
+                        title: Text('Obsidian folder'),
+                      ),
+                    ),
                   if (_isDesktop)
                     const PopupMenuItem(
                       value: 'settings',
