@@ -118,6 +118,9 @@ try {
 } finally {
     # The decoded keystore must not stay on disk.
     if (Test-Path $signingDir) { Remove-Item $signingDir -Recurse -Force }
+    # Stop the Gradle daemon so builds don't pile up background Java processes.
+    $gradlew = Join-Path $Root 'android\gradlew.bat'
+    if (Test-Path $gradlew) { & $gradlew --stop *> $null }
 }
 
 $apk = Join-Path $Root 'build\app\outputs\flutter-apk\app-arm64-v8a-release.apk'
