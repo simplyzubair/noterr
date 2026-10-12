@@ -23,7 +23,10 @@ Future<void> main(List<String> args) async {
   }
 
   final showEditor = args.contains('--show-editor');
-  final startHidden = args.contains('--start-hidden') || !showEditor;
+  // Windows starts in the tray with the daily sticky unless asked for the
+  // editor. On macOS a double-click passes no arguments, so start visible.
+  final startHidden = args.contains('--start-hidden') ||
+      (!showEditor && !Platform.isMacOS);
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     final multiWindowController = await WindowController.fromCurrentEngine();

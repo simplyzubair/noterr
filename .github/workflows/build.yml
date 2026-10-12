@@ -146,13 +146,36 @@ jobs:
           flutter build macos --release
           --build-name=$APP_VERSION --build-number=$APP_BUILD
 
-      - name: Package .dmg
+      - name: Sign for local use and check the app opens
         run: |
           app=$(ls -d build/macos/Build/Products/Release/*.app | head -1)
-          staging=$(mktemp -d)
-          cp -R "$app" "$staging/Noterr.app"
-          ln -s /Applications "$staging/Applications"
-          hdiutil create -volname "Noterr" -srcfolder "$staging" -ov -format UDZO             "Noterr-v$APP_VERSION.dmg"
+          rm -rf Noterr.app
+          cp -R "$app" Noterr.app
+          # Ad-hoc signature: required to run on Apple Silicon at all.
+          codesign --force --deep --sign - Noterr.app
+          codesign --verify --deep --strict Noterr.app
+          # Launch it and make sure it is still running and has a window, so
+          # a Mac build that can't start never reaches a release.
+          open -n Noterr.app
+          sleep 20
+          pgrep -fl "Noterr.app/Contents/MacOS/" || { echo "::error::Noterr did not stay running on macOS"; exit 1; }
+          windows=$(osascript -e 'tell application "System Events" to count windows of (first process whose unix id is '"$(pgrep -f 'Noterr.app/Contents/MacOS/' | head -1)"')' 2>/dev/null || echo "?")
+          echo "windows open: $windows"
+          pkill -f "Noterr.app/Contents/MacOS/" || true
+
+      - name: Package .dmg
+        run: |
+          brew install create-dmg
+          # Opens as the usual "drag Noterr to Applications" window.
+          create-dmg \
+            --volname "Noterr" \
+            --window-size 540 340 \
+            --icon-size 110 \
+            --icon "Noterr.app" 140 150 \
+            --app-drop-link 400 150 \
+            --hide-extension "Noterr.app" \
+            --no-internet-enable \
+            "Noterr-v$APP_VERSION.dmg" Noterr.app
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4

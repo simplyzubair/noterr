@@ -64,7 +64,10 @@ class ObsidianTask {
 
 class ObsidianSyncService {
   ObsidianSyncService({FlutterSecureStorage? secureStorage})
-      : _secureStorage = secureStorage ?? const FlutterSecureStorage();
+      : _secureStorage = secureStorage ??
+            const FlutterSecureStorage(
+              mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+            );
 
   static const _vaultPathKey  = 'noterr_obsidian_vault_path';
   static const _folderKey     = 'noterr_obsidian_folder';

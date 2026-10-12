@@ -119,7 +119,11 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       await windowManager.setPreventClose(true);
       final startOnLogin = await _startupService.ensureDefaultEnabled();
       if (mounted) setState(() => _startOnLogin = startOnLogin);
-      await trayManager.setIcon('windows/runner/resources/app_icon.ico');
+      await trayManager.setIcon(
+        Platform.isMacOS
+            ? 'assets/tray_icon_mac.png'
+            : 'windows/runner/resources/app_icon.ico',
+      );
       await trayManager.setToolTip('Noterr');
       await trayManager.setContextMenu(
         Menu(

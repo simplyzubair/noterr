@@ -23,7 +23,10 @@ class LocalVault {
   LocalVault({
     FlutterSecureStorage? secureStorage,
     String profile = '',
-  })  : _secureStorage = secureStorage ?? const FlutterSecureStorage(),
+  })  : _secureStorage = secureStorage ??
+            const FlutterSecureStorage(
+              mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+            ),
         _profile = _cleanProfile(profile);
 
   static const _deviceIdKey = 'noterr_device_id';
