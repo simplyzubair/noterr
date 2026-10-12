@@ -1,5 +1,7 @@
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+
+import '../services/sticky_window_service.dart';
 import 'package:intl/intl.dart';
 
 import '../models/note.dart';
@@ -582,11 +584,12 @@ class _EditorToolbar extends StatelessWidget {
                     : Icons.vertical_align_top_outlined,
               ),
             ),
-            IconButton(
-              tooltip: 'Show as desktop sticky note',
-              onPressed: onShowSticky,
-              icon: const Icon(Icons.open_in_new),
-            ),
+            if (StickyWindowService.instance.isSupported)
+              IconButton(
+                tooltip: 'Show as desktop sticky note',
+                onPressed: onShowSticky,
+                icon: const Icon(Icons.open_in_new),
+              ),
             IconButton(
               tooltip: 'Reminder',
               onPressed: onReminder,

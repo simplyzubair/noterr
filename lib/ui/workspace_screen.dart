@@ -925,11 +925,12 @@ class _ItemDetailScreen extends StatelessWidget {
           appBar: AppBar(
             title: Text(note.isArchived ? note.title : 'Today'),
             actions: [
-              IconButton(
-                tooltip: 'Show as desktop sticky',
-                onPressed: () => StickyWindowService.instance.show(note),
-                icon: const Icon(Icons.open_in_new),
-              ),
+              if (StickyWindowService.instance.isSupported)
+                IconButton(
+                  tooltip: 'Show as desktop sticky',
+                  onPressed: () => StickyWindowService.instance.show(note),
+                  icon: const Icon(Icons.open_in_new),
+                ),
               IconButton(
                 tooltip: note.isArchived ? 'Unarchive' : 'Archive',
                 onPressed: () => controller.archiveNote(note, !note.isArchived),
@@ -1058,12 +1059,13 @@ class _ItemEditorState extends State<_ItemEditor> {
                                 ?.copyWith(fontWeight: FontWeight.w800),
                           ),
                         ),
-                        IconButton(
-                          tooltip: 'Show as desktop sticky',
-                          onPressed: () =>
-                              StickyWindowService.instance.show(note),
-                          icon: const Icon(Icons.open_in_new),
-                        ),
+                        if (StickyWindowService.instance.isSupported)
+                          IconButton(
+                            tooltip: 'Show as desktop sticky',
+                            onPressed: () =>
+                                StickyWindowService.instance.show(note),
+                            icon: const Icon(Icons.open_in_new),
+                          ),
                       ],
                     ),
                   ),

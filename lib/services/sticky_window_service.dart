@@ -24,8 +24,10 @@ class StickyWindowService {
   NoterrController? _boundController;
   NoterrController? _controller;
 
-  bool get isSupported =>
-      !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+  // Not macOS: there a sticky window's engine gets no plugins, so it waits
+  // forever for window_manager and shows as an empty black window. The main
+  // window already shows the daily board on Mac.
+  bool get isSupported => !kIsWeb && (Platform.isWindows || Platform.isLinux);
 
   void bindController(NoterrController controller) {
     _boundController?.removeListener(_syncOpenWindowsFromController);
