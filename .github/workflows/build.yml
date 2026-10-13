@@ -190,41 +190,26 @@ jobs:
           path: Noterr-v*.dmg
 
   # ────────────────────────────────────────────────────────────────
-  # Android: built and signed on the owner's PC (self-hosted runner),
-  # because the signing keys live in Infisical, which is Tailscale only.
-  # Never runs for pull requests, so outside code can't reach that PC.
+  # Android: built and signed on the NAS (self-hosted runner in Docker,
+  # /volume1/docker/github-runners), because the signing keys live in
+  # Infisical, which is Tailscale only.
+  # Never runs for pull requests, so outside code can't reach the NAS.
   # ────────────────────────────────────────────────────────────────
   android:
     name: Android APK
     needs: [version, windows]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
-    runs-on: [self-hosted, windows, noterr-android]
-    timeout-minutes: 45
+    runs-on: [self-hosted, linux, nas, flutter-android]
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Build and sign with keys from Infisical
-        shell: powershell
-        # Run in its own hidden console. When the build ends, a tool in the
-        # chain sends Ctrl+C to its console group; sharing the runner's console
-        # made the runner itself shut down mid-job.
-        run: |
-          $log = Join-Path $env:RUNNER_TEMP 'android-build.log'
-          # Not -Wait: that also waits for the Gradle daemon the build leaves
-          # running, so the step would never end.
-          $p = Start-Process powershell -WindowStyle Hidden -PassThru `
-            -RedirectStandardOutput $log -RedirectStandardError "$log.err" `
-            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass',
-              '-File', 'scripts/release-android.ps1', '-Robot',
-              '-Version', '${{ needs.version.outputs.version }}',
-              '-BuildNumber', '${{ needs.version.outputs.build }}')
-          # Reading Handle keeps the process handle open; without it ExitCode
-          # comes back empty and a failed build would pass.
-          $null = $p.Handle
-          $p.WaitForExit()
-          Get-Content $log, "$log.err" -ErrorAction SilentlyContinue
-          if ($p.ExitCode -ne 0) { exit 1 }
+        run: >
+          bash scripts/release-android.sh
+          --version '${{ needs.version.outputs.version }}'
+          --build-number '${{ needs.version.outputs.build }}'
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
