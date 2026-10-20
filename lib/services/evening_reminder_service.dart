@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
-import 'package:window_manager/window_manager.dart';
 
 import '../controllers/noterr_controller.dart';
 import '../ui/plan_tomorrow_screen.dart';
@@ -19,8 +18,8 @@ import '../ui/plan_tomorrow_screen.dart';
 /// app starts, resumes or a plan is saved. Inexact alarms are used, so no
 /// exact-alarm permission is needed; a reminder can arrive a few minutes late.
 ///
-/// Desktop: the app lives in the tray, so a timer brings the window forward
-/// and opens the planner at each reminder time instead.
+/// Desktop gets no evening reminders (the user is rarely at the PC at night);
+/// the planner still opens from the "Plan tomorrow" button.
 ///
 /// If every reminder is ignored, nothing is lost: open tasks carry over to
 /// the next day by themselves at day change.
@@ -41,13 +40,9 @@ class EveningReminderService {
   GlobalKey<NavigatorState>? _navigator;
   bool _androidReady = false;
   bool _plannerOpen = false;
-  Timer? _desktopTimer;
   AppLifecycleListener? _lifecycle;
-  final Set<String> _firedDesktopSlots = {};
 
   bool get _isAndroid => !kIsWeb && Platform.isAndroid;
-  bool get _isDesktop =>
-      !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
 
   Future<void> start(
     NoterrController controller,
@@ -55,21 +50,9 @@ class EveningReminderService {
   ) async {
     _controller = controller;
     _navigator = navigator;
+    if (!_isAndroid) return;
     _lifecycle ??= AppLifecycleListener(onResume: () => unawaited(reschedule()));
-    if (_isAndroid) {
-      await _startAndroid();
-    } else if (_isDesktop) {
-      _desktopTimer?.cancel();
-      _desktopTimer = Timer.periodic(
-        const Duration(seconds: 30),
-        (_) => _checkDesktop(),
-      );
-    }
-  }
-
-  void stop() {
-    _desktopTimer?.cancel();
-    _desktopTimer = null;
+    await _startAndroid();
   }
 
   // ── Android ───────────────────────────────────────────────────────────────
@@ -165,28 +148,6 @@ class EveningReminderService {
     } catch (e) {
       debugPrint('[EveningReminder] reschedule failed: $e');
     }
-  }
-
-  // ── Desktop ───────────────────────────────────────────────────────────────
-
-  void _checkDesktop() {
-    final controller = _controller;
-    if (controller == null || !controller.isUnlocked) return;
-    final now = DateTime.now();
-    if (!reminderHours.contains(now.hour) || now.minute > 4) return;
-    final key = '${now.year}-${now.month}-${now.day}-${now.hour}';
-    if (!_firedDesktopSlots.add(key)) return;
-    if (controller.hasPlannedNextDay) return;
-    unawaited(_showDesktopPlanner());
-  }
-
-  Future<void> _showDesktopPlanner() async {
-    try {
-      await windowManager.setSkipTaskbar(false);
-      await windowManager.show();
-      await windowManager.focus();
-    } catch (_) {}
-    await openPlanner();
   }
 
   // ── Shared ────────────────────────────────────────────────────────────────

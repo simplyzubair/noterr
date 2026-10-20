@@ -94,7 +94,6 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     _reminderTimer?.cancel();
     _updateTimer?.cancel();
     _updateLifecycle?.dispose();
-    EveningReminderService.instance.stop();
     super.dispose();
   }
 
