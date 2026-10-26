@@ -1617,24 +1617,20 @@ class NoterrController extends ChangeNotifier {
     final winner = incomingWins ? incoming : current;
     final other = incomingWins ? current : incoming;
     if (winner.isDeleted || other.isDeleted) return winner;
-    if (!_isDailyBoard(winner) || !_isDailyBoard(other)) return winner;
+    if (!_isDayBoard(winner) || !_isDayBoard(other)) return winner;
 
     final deletedKeys = {
       ...winner.deletedChecklistItemKeys,
       ...other.deletedChecklistItemKeys,
     }.where((key) => key.trim().isNotEmpty).toSet();
-    final usedKeys = <String>{};
-    final checklist = <ChecklistItem>[];
-    for (final board in [winner, other]) {
-      for (final item in board.checklist) {
-        final text = item.text.trim();
-        if (text.isEmpty) continue;
-        final keys = _checklistItemKeys(item);
-        if (keys.any(deletedKeys.contains)) continue;
-        if (keys.any(usedKeys.contains)) continue;
-        usedKeys.addAll(keys);
-        checklist.add(item);
-      }
+    final checklist =
+        mergeChecklists([winner.checklist, other.checklist], deletedKeys);
+    if (!_isDailyBoard(winner)) {
+      // A day that already ended on one device: keep its newest ticks.
+      return winner.copyWith(
+        checklist: checklist,
+        deletedChecklistItemKeys: deletedKeys.toList(),
+      );
     }
 
     final body = winner.body.trim().isEmpty
@@ -1660,6 +1656,56 @@ class NoterrController extends ChangeNotifier {
 
   bool _isDailyBoard(Note note) {
     return note.boardName == 'Today' && note.supportsChecklist;
+  }
+
+  /// A day's board, still open (Today) or already ended (History).
+  bool _isDayBoard(Note note) {
+    return (note.boardName == 'Today' || note.boardName == 'History') &&
+        note.supportsChecklist;
+  }
+
+  /// Joins the checklists of several copies of one board. A task is matched
+  /// by id or text; the first copy decides its place and text, and the copy
+  /// ticked or unticked most recently decides whether it is done.
+  @visibleForTesting
+  static List<ChecklistItem> mergeChecklists(
+    List<List<ChecklistItem>> boards,
+    Set<String> deletedKeys,
+  ) {
+    final indexByKey = <String, int>{};
+    final out = <ChecklistItem>[];
+    for (final board in boards) {
+      for (final item in board) {
+        if (item.text.trim().isEmpty) continue;
+        final keys = _itemKeys(item);
+        if (keys.any(deletedKeys.contains)) continue;
+        final index = keys
+            .map((key) => indexByKey[key])
+            .firstWhere((i) => i != null, orElse: () => null);
+        if (index == null) {
+          for (final key in keys) {
+            indexByKey[key] = out.length;
+          }
+          out.add(item);
+          continue;
+        }
+        final kept = out[index];
+        final keptAt = kept.doneChangedAt;
+        final itemAt = item.doneChangedAt;
+        if (itemAt != null && (keptAt == null || itemAt.isAfter(keptAt))) {
+          out[index] = kept.copyWith(done: item.done, doneChangedAt: itemAt);
+        }
+      }
+    }
+    return out;
+  }
+
+  static List<String> _itemKeys(ChecklistItem item) {
+    final text = item.text.trim().toLowerCase();
+    return [
+      if (text.isNotEmpty) 'text:$text',
+      'id:${item.id}',
+    ];
   }
 
   bool _isFutureDailyBoard(Note note) {
@@ -1748,7 +1794,56 @@ class NoterrController extends ChangeNotifier {
     }
 
     await _mergeDuplicateTodayBoards(now);
+    await _dropCarriedTasksDoneAtSource();
     await _deleteHistoryOlderThan365Days();
+  }
+
+  /// A device can roll the day over before a late tick from another device
+  /// reaches it, and so carry a task that was in fact done. Once that tick
+  /// arrives, the source day shows it done: take the carried copy off today.
+  Future<void> _dropCarriedTasksDoneAtSource() async {
+    final today = todayTodoNote;
+    if (today == null) return;
+    final dropped = today.checklist
+        .where((item) => carriedTaskDoneAtSource(item, _notes))
+        .toList();
+    if (dropped.isEmpty) return;
+    final droppedIds = dropped.map((item) => item.id).toSet();
+    await _persistAndPush(
+      _touch(
+        today.copyWith(
+          checklist: today.checklist
+              .where((item) => !droppedIds.contains(item.id))
+              .toList(),
+          deletedChecklistItemKeys: {
+            ...today.deletedChecklistItemKeys,
+            for (final id in droppedIds) 'id:$id',
+          }.toList(),
+        ),
+      ),
+    );
+  }
+
+  /// Whether [item] is an open task carried from a day whose board shows the
+  /// same task done.
+  @visibleForTesting
+  static bool carriedTaskDoneAtSource(ChecklistItem item, List<Note> notes) {
+    final from = item.carriedFrom?.toLocal();
+    if (item.done || from == null) return false;
+    final text = item.text.trim().toLowerCase();
+    if (text.isEmpty) return false;
+    return notes.any((note) {
+      final day = note.dayKey;
+      return !note.isDeleted &&
+          note.boardName == 'History' &&
+          day.year == from.year &&
+          day.month == from.month &&
+          day.day == from.day &&
+          note.checklist.any(
+            (source) =>
+                source.done && source.text.trim().toLowerCase() == text,
+          );
+    });
   }
 
   List<ChecklistItem> _missedCarryTasksFromLatestHistory(DateTime now) {
@@ -1757,12 +1852,12 @@ class NoterrController extends ChangeNotifier {
           note.isArchived &&
           note.boardName == 'History' &&
           note.supportsChecklist &&
-          note.dayKey.isBefore(_dayOnly(now)) &&
-          note.checklist.any(
-            (item) => !item.done && item.text.trim().isNotEmpty,
-          );
+          note.dayKey.isBefore(_dayOnly(now));
     }).toList()
       ..sort(_byDayThenCreatedDesc);
+
+    // Only the last day counts: an older day's open task may have been done
+    // on a later day.
 
     if (latestHistory.isEmpty) return const [];
     final source = latestHistory.first;
@@ -1826,21 +1921,14 @@ class NoterrController extends ChangeNotifier {
                 .where((note) => !_wasBodyClearedAfter(note, bodyClearedAt))
                 .map((note) => note.body),
           ]);
-    final checklistByKey = <String, ChecklistItem>{};
-    final usedKeys = <String>{};
     final deletedKeys = boards
         .expand((note) => note.deletedChecklistItemKeys)
         .where((key) => key.trim().isNotEmpty)
         .toSet();
-    for (final board in boards) {
-      for (final item in board.checklist) {
-        final keys = _checklistItemKeys(item);
-        if (keys.any(deletedKeys.contains)) continue;
-        if (keys.any(usedKeys.contains)) continue;
-        usedKeys.addAll(keys);
-        checklistByKey[keys.first] = item;
-      }
-    }
+    final checklist = mergeChecklists(
+      boards.map((board) => board.checklist).toList(),
+      deletedKeys,
+    );
 
     await _persistAndPush(
       _touch(
@@ -1848,7 +1936,7 @@ class NoterrController extends ChangeNotifier {
           title: _dailyTitle(now),
           type: NoteType.full,
           body: body,
-          checklist: checklistByKey.values.toList(),
+          checklist: checklist,
           deletedChecklistItemKeys: deletedKeys.toList(),
           bodyClearedAt: bodyClearedAt,
           isPinned: true,

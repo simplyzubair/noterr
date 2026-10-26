@@ -42,6 +42,7 @@ class ChecklistItem {
     String? id,
     required this.text,
     this.done = false,
+    this.doneChangedAt,
     this.isFocus = false,
     this.carriedFrom,
     this.reminderAt,
@@ -55,6 +56,9 @@ class ChecklistItem {
         id: json['id'] as String?,
         text: json['text'] as String? ?? '',
         done: json['done'] as bool? ?? false,
+        doneChangedAt: json['doneChangedAt'] == null
+            ? null
+            : DateTime.tryParse(json['doneChangedAt'] as String)?.toUtc(),
         isFocus: json['isFocus'] as bool? ?? false,
         carriedFrom: json['carriedFrom'] == null
             ? null
@@ -73,6 +77,10 @@ class ChecklistItem {
   final String id;
   final String text;
   final bool done;
+
+  /// When [done] last changed. Sync keeps the newest tick of a task, so a
+  /// tick on one device isn't undone by an older copy from another.
+  final DateTime? doneChangedAt;
   final bool isFocus;
   final DateTime? carriedFrom;
   final DateTime? reminderAt;
@@ -86,6 +94,7 @@ class ChecklistItem {
   ChecklistItem copyWith({
     String? text,
     bool? done,
+    DateTime? doneChangedAt,
     bool? isFocus,
     DateTime? carriedFrom,
     bool clearCarriedFrom = false,
@@ -100,6 +109,10 @@ class ChecklistItem {
         id: id,
         text: text ?? this.text,
         done: done ?? this.done,
+        doneChangedAt: doneChangedAt ??
+            (done != null && done != this.done
+                ? DateTime.now().toUtc()
+                : this.doneChangedAt),
         isFocus: isFocus ?? this.isFocus,
         carriedFrom: clearCarriedFrom ? null : carriedFrom ?? this.carriedFrom,
         reminderAt: clearReminder ? null : reminderAt ?? this.reminderAt,
@@ -113,6 +126,7 @@ class ChecklistItem {
         'id': id,
         'text': text,
         'done': done,
+        'doneChangedAt': doneChangedAt?.toIso8601String(),
         'isFocus': isFocus,
         'carriedFrom': carriedFrom?.toIso8601String(),
         'reminderAt': reminderAt?.toIso8601String(),
