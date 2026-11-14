@@ -41,18 +41,28 @@ test('rejects bad ids and unknown profiles', async () => {
   assert.equal((await post('/pull', { syncId: 'b'.repeat(40) })).status, 404);
 });
 
-test('push and pull, newer revision wins, older is ignored', async () => {
-  await post('/push', { syncId, note: note('n1', 2, '2026-10-08T10:00:00Z', 'v2') });
-  await post('/push', { syncId, note: note('n1', 1, '2026-10-08T11:00:00Z', 'v1-stale') });
+test('push and pull, the last change wins whatever its revision', async () => {
+  await post('/push', { syncId, note: note('n1', 5, '2026-10-08T10:00:00Z', 'phone') });
+  // Another device, fewer edits so a lower revision, but changed later.
+  await post('/push', { syncId, note: note('n1', 2, '2026-10-08T11:00:00Z', 'pc-later') });
+  // A late push of an older edit must not undo it.
+  await post('/push', { syncId, note: note('n1', 9, '2026-10-08T09:00:00Z', 'stale') });
   await post('/push', { syncId, note: note('n2', 1, '2026-10-08T09:00:00Z') });
   const all = await post('/pull', { syncId });
   assert.equal(all.body.notes.length, 2);
-  assert.equal(all.body.notes.find((n) => n.id === 'n1').encrypted_payload, 'v2');
+  assert.equal(all.body.notes.find((n) => n.id === 'n1').encrypted_payload, 'pc-later');
+});
 
-  await post('/push', { syncId, note: note('n1', 3, '2026-10-08T12:00:00Z', 'v3') });
-  const since = await post('/pull', { syncId, since: '2026-10-08T10:30:00Z' });
-  assert.deepEqual(since.body.notes.map((n) => n.id), ['n1']);
-  assert.equal(since.body.notes[0].encrypted_payload, 'v3');
+test('pull since returns what reached the server after it, even an old edit', async () => {
+  const before = (await post('/pull', { syncId })).body.serverTime;
+  await new Promise((r) => setTimeout(r, 5));
+  // Edited long ago on a device that was offline, pushed only now.
+  await post('/push', { syncId, note: note('n4', 1, '2026-10-01T08:00:00Z', 'late') });
+  const since = await post('/pull', { syncId, since: before });
+  assert.deepEqual(since.body.notes.map((n) => n.id), ['n4']);
+  await new Promise((r) => setTimeout(r, 5));
+  const again = await post('/pull', { syncId, since: since.body.serverTime });
+  assert.equal(again.body.notes.length, 0);
 });
 
 test('a push without ciphertext is refused', async () => {

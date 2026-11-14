@@ -44,6 +44,16 @@ db.exec(`
   create index if not exists idx_noterr_notes_sync_updated
     on noterr_notes(sync_id, updated_at desc);
 `);
+// synced_at is when the server received the note (server clock). updated_at
+// is the device's clock at the edit, which can be minutes old when a push is
+// retried, so "what changed since my last pull" must not use it.
+if (!db.prepare('pragma table_info(noterr_notes)').all().some((c) => c.name === 'synced_at')) {
+  db.exec(`
+    alter table noterr_notes add column synced_at text not null default '';
+    update noterr_notes set synced_at = updated_at where synced_at = '';
+  `);
+}
+db.exec('create index if not exists idx_noterr_notes_sync_synced on noterr_notes(sync_id, synced_at)');
 
 const getProfile = db.prepare('select sync_id, vault_salt from noterr_profiles where sync_id = ?');
 const insertProfile = db.prepare(
@@ -53,21 +63,28 @@ const pullAll = db.prepare(
   'select id, encrypted_payload, nonce, mac, payload_version, revision, device_id, deleted_at, updated_at from noterr_notes where sync_id = ? order by updated_at desc',
 );
 const pullSince = db.prepare(
-  'select id, encrypted_payload, nonce, mac, payload_version, revision, device_id, deleted_at, updated_at from noterr_notes where sync_id = ? and updated_at > ? order by updated_at desc',
+  'select id, encrypted_payload, nonce, mac, payload_version, revision, device_id, deleted_at, updated_at from noterr_notes where sync_id = ? and synced_at >= ? order by updated_at desc',
 );
-// Newer revision wins; on equal revision the later update wins.
+// The last change wins: the later edit time, whichever device made it. Each
+// device counts revisions on its own, so a revision can't order two devices.
 const upsertNote = db.prepare(`
-  insert into noterr_notes (id, sync_id, encrypted_payload, nonce, mac, payload_version, revision, device_id, deleted_at, updated_at)
-  values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  insert into noterr_notes (id, sync_id, encrypted_payload, nonce, mac, payload_version, revision, device_id, deleted_at, updated_at, synced_at)
+  values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   on conflict(sync_id, id) do update set
     encrypted_payload = excluded.encrypted_payload, nonce = excluded.nonce, mac = excluded.mac,
     payload_version = excluded.payload_version, revision = excluded.revision,
-    device_id = excluded.device_id, deleted_at = excluded.deleted_at, updated_at = excluded.updated_at
-  where excluded.revision > noterr_notes.revision
-     or (excluded.revision = noterr_notes.revision and excluded.updated_at > noterr_notes.updated_at)
+    device_id = excluded.device_id, deleted_at = excluded.deleted_at, updated_at = excluded.updated_at,
+    synced_at = excluded.synced_at
+  where excluded.updated_at > noterr_notes.updated_at
+     or (excluded.updated_at = noterr_notes.updated_at and excluded.revision > noterr_notes.revision)
 `);
 
 const nowIso = () => new Date().toISOString();
+// Edit times are compared as text, so store them all in one shape.
+const isoOrNull = (v) => {
+  const ms = typeof v === 'string' ? Date.parse(v) : NaN;
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
+};
 const validSyncId = (v) => typeof v === 'string' && /^[a-f0-9]{40}$/.test(v);
 const str = (v) => (typeof v === 'string' ? v : null);
 
@@ -129,9 +146,12 @@ export async function handle(req, res) {
   if (!getProfile.get(syncId)) return send(res, 404, { error: 'Unknown sync profile.' });
 
   if (path === '/pull') {
-    const since = str(body.since) || '';
+    // Read the clock first: a note stored while we read is then sent again
+    // next time instead of being skipped.
+    const serverTime = nowIso();
+    const since = isoOrNull(body.since);
     const notes = since ? pullSince.all(syncId, since) : pullAll.all(syncId);
-    return send(res, 200, { notes, serverTime: nowIso() });
+    return send(res, 200, { notes, serverTime });
   }
 
   if (path === '/push') {
@@ -141,11 +161,11 @@ export async function handle(req, res) {
       return send(res, 400, { error: 'note is missing encrypted fields.' });
     }
     const t = nowIso();
-    const updatedAt = str(n.updated_at) || t;
+    const updatedAt = isoOrNull(n.updated_at) || t;
     upsertNote.run(
       n.id, syncId, n.encrypted_payload, n.nonce, n.mac,
       Number(n.payload_version) || 1, Number(n.revision) || 1,
-      str(n.device_id) || '', str(n.deleted_at), updatedAt,
+      str(n.device_id) || '', str(n.deleted_at), updatedAt, t,
     );
     return send(res, 200, { ok: true, updatedAt, serverTime: t });
   }

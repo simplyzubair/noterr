@@ -33,13 +33,11 @@ bool FlutterWindow::OnCreate() {
   });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
-  flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
-  });
-
-  // Flutter can complete the first frame before the "show window" callback is
-  // registered. The following call ensures a frame is pending to ensure the
-  // window is shown. It is a no-op if the first frame hasn't completed yet.
+  // The window is not shown here. Noterr starts in the tray, and showing the
+  // window on the first frame made it flash on screen at every Windows start
+  // before the app hid it again. main.dart shows it (window_manager) when it
+  // was started with --show-editor, and the tray menu or the unlock screen
+  // show it later.
   flutter_controller_->ForceRedraw();
 
   return true;

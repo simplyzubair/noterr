@@ -97,6 +97,7 @@ class NoterrController extends ChangeNotifier {
   // device that synced before (or with another server) uploads what the
   // server is missing instead of trusting its old "last pulled" time.
   bool _needsFullSync = true;
+  Future<void>? _syncInFlight;
   String? _weeklyRunKey;
   String _deviceId = '';
   String? _activeVaultSalt;
@@ -1243,9 +1244,10 @@ class NoterrController extends ChangeNotifier {
   void _startSyncTimer() {
     _syncTimer?.cancel();
     if (!hasCloud || _key == null) return;
-    _syncTimer = Timer.periodic(const Duration(minutes: 5), (_) {
-      if (_syncState == SyncState.syncing) return;
-      unawaited(syncNow());
+    // Short, so a change made on one device shows on the others in seconds.
+    // A check that finds nothing new is one small request and changes nothing.
+    _syncTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      unawaited(syncNow(quiet: true));
     });
   }
 
@@ -1434,9 +1436,12 @@ class NoterrController extends ChangeNotifier {
         current.body.trim().isNotEmpty &&
         note.body.trim().isEmpty &&
         note.supportsBody;
+    final revision = current != null && current.revision > note.revision
+        ? current.revision
+        : note.revision;
     final changed = note.copyWith(
-      updatedAt: DateTime.now().toUtc(),
-      revision: note.revision + 1,
+      updatedAt: _stampAfter(note.updatedAt, current?.updatedAt),
+      revision: revision + 1,
       deviceId: _deviceId,
       bodyClearedAt: bodyWasCleared ? DateTime.now().toUtc() : null,
     );
@@ -1484,18 +1489,39 @@ class NoterrController extends ChangeNotifier {
     );
   }
 
-  Future<void> syncNow() async {
+  /// Pulls what other devices changed and pushes what this one still owes.
+  /// [quiet] is the background check: it leaves the screen alone unless
+  /// something really changed.
+  Future<void> syncNow({bool quiet = false}) {
+    final running = _syncInFlight;
+    if (running != null) return running;
+    final run = _runSync(quiet: quiet);
+    _syncInFlight = run;
+    return run.whenComplete(() => _syncInFlight = null);
+  }
+
+  Future<void> _runSync({required bool quiet}) async {
     final key = _key;
     if (!hasCloud || key == null) return;
-    _setSync(SyncState.syncing);
+    if (quiet && _remote.currentUserId == null) return;
+    if (!quiet) _setSync(SyncState.syncing);
     try {
       final fullSync = _needsFullSync || _lastPulledAt == null;
       final since =
           fullSync ? null : _lastPulledAt!.subtract(const Duration(seconds: 5));
+      final startedAt = DateTime.now().toUtc();
       final remoteNotes = await _remote.pullNotes(key, since: since);
+      if (!identical(_key, key)) return;
+      final pulledAt = _remote.lastServerTime ?? startedAt;
       final remoteIds = remoteNotes.map((note) => note.id).toSet();
+      final changed = _merge(remoteNotes);
+      if (quiet && !fullSync && !changed && _dirtyNoteIds.isEmpty) {
+        _lastPulledAt = pulledAt;
+        _lastSyncAt = DateTime.now().toUtc();
+        if (_syncState == SyncState.error) _setSync(SyncState.idle);
+        return;
+      }
       _lastPulledCount = remoteNotes.length;
-      _merge(remoteNotes);
       await _rollDailyBoardIfNeeded();
       await _materializePlanItemsForToday();
       final notesToPush = _notes
@@ -1511,16 +1537,16 @@ class NoterrController extends ChangeNotifier {
       }
       _lastPushedCount = pushed;
       _needsFullSync = false;
-      _lastPulledAt = DateTime.now().toUtc();
-      _lastSyncAt = _lastPulledAt;
+      _lastPulledAt = pulledAt;
+      _lastSyncAt = DateTime.now().toUtc();
       await _saveLocal();
       await _publishWidget();
-      notifyListeners();
       _setSync(SyncState.idle);
       // Notes from other devices land in Obsidian too.
-      if (remoteNotes.isNotEmpty) unawaited(_obsidianSyncAll());
+      if (changed) unawaited(_obsidianSyncAll());
     } catch (error) {
-      _setError(error.toString());
+      // A background check that keeps failing (offline) reports it once.
+      if (!quiet || _syncState != SyncState.error) _setError(error.toString());
     }
   }
 
@@ -1600,58 +1626,102 @@ class NoterrController extends ChangeNotifier {
     }
   }
 
-  void _merge(List<Note> incoming) {
+  /// Takes in notes from the server. Returns whether any note here changed.
+  bool _merge(List<Note> incoming) {
+    var changed = false;
     for (final note in incoming) {
       final index = _notes.indexWhere((item) => item.id == note.id);
       if (index == -1) {
         _notes.add(note);
+        changed = true;
         continue;
       }
       final current = _notes[index];
-      _notes[index] = _mergeNote(current, note);
+      final merged = _mergeNote(current, note);
+      if (identical(merged, current)) continue;
+      _notes[index] = merged;
+      changed = changed ||
+          jsonEncode(merged.toJson()) != jsonEncode(current.toJson());
     }
+    return changed;
   }
+
+  /// What this device keeps when it holds [current] and the server sends
+  /// [incoming].
+  @visibleForTesting
+  Note mergeCopies(Note current, Note incoming) =>
+      _mergeNote(current, incoming);
 
   Note _mergeNote(Note current, Note incoming) {
     final incomingWins = _noteWins(incoming, current);
-    final winner = incomingWins ? incoming : current;
     final other = incomingWins ? current : incoming;
+    var winner = incomingWins ? incoming : current;
+    // Revisions only ever go up, so a device still on an older version of the
+    // app (which trusts the revision) accepts this copy too.
+    if (other.revision > winner.revision) {
+      winner = winner.copyWith(revision: other.revision);
+    }
+    // The server holds an older copy than this device: it still needs ours.
+    if (!incomingWins && current.updatedAt.isAfter(incoming.updatedAt)) {
+      _dirtyNoteIds.add(current.id);
+    }
     if (winner.isDeleted || other.isDeleted) return winner;
     if (!_isDayBoard(winner) || !_isDayBoard(other)) return winner;
 
+    // A day's board keeps the tasks of both copies, so a task added on one
+    // device while the other was offline isn't lost. Everything else, the
+    // text included, comes from the copy changed last.
     final deletedKeys = {
       ...winner.deletedChecklistItemKeys,
       ...other.deletedChecklistItemKeys,
     }.where((key) => key.trim().isNotEmpty).toSet();
     final checklist =
         mergeChecklists([winner.checklist, other.checklist], deletedKeys);
+    final Note merged;
     if (!_isDailyBoard(winner)) {
       // A day that already ended on one device: keep its newest ticks.
-      return winner.copyWith(
+      merged = winner.copyWith(
         checklist: checklist,
         deletedChecklistItemKeys: deletedKeys.toList(),
       );
+    } else {
+      merged = winner.copyWith(
+        type: NoteType.full,
+        checklist: checklist,
+        deletedChecklistItemKeys: deletedKeys.toList(),
+        bodyClearedAt: _latestDate(winner.bodyClearedAt, other.bodyClearedAt),
+        isPinned: true,
+        popOnDesktop: true,
+        showOnMobileWidget: true,
+      );
     }
-
-    final body = winner.body.trim().isEmpty
-        ? ''
-        : _mergeBodyParts([winner.body, other.body]);
-    return winner.copyWith(
-      type: NoteType.full,
-      body: body,
-      checklist: checklist,
-      deletedChecklistItemKeys: deletedKeys.toList(),
-      bodyClearedAt: _latestDate(winner.bodyClearedAt, other.bodyClearedAt),
-      isPinned: true,
-      popOnDesktop: true,
-      showOnMobileWidget: true,
+    if (_sameBoardContent(merged, incoming)) return merged;
+    // This copy now holds more than the server's. Send it back as the newest
+    // change, or the other devices and the phone widget never see it.
+    _dirtyNoteIds.add(merged.id);
+    return merged.copyWith(
+      updatedAt: _stampAfter(merged.updatedAt, incoming.updatedAt),
+      revision: merged.revision + 1,
+      deviceId: _deviceId,
     );
   }
 
+  bool _sameBoardContent(Note a, Note b) {
+    String tasks(Note note) => jsonEncode(
+          note.checklist
+              .where((item) => item.text.trim().isNotEmpty)
+              .map((item) => item.toJson())
+              .toList(),
+        );
+    return a.body.trim() == b.body.trim() && tasks(a) == tasks(b);
+  }
+
+  /// The last change wins, whichever device made it. Each device counts its
+  /// own revisions, so a revision only settles two copies with the same time.
   bool _noteWins(Note candidate, Note current) {
-    return candidate.revision > current.revision ||
-        (candidate.revision == current.revision &&
-            candidate.updatedAt.isAfter(current.updatedAt));
+    return candidate.updatedAt.isAfter(current.updatedAt) ||
+        (candidate.updatedAt.isAtSameMomentAs(current.updatedAt) &&
+            candidate.revision > current.revision);
   }
 
   bool _isDailyBoard(Note note) {
@@ -1984,10 +2054,21 @@ class NoterrController extends ChangeNotifier {
 
   Note _touch(Note note) {
     return note.copyWith(
-      updatedAt: DateTime.now().toUtc(),
+      updatedAt: _stampAfter(note.updatedAt),
       revision: note.revision + 1,
       deviceId: _deviceId,
     );
+  }
+
+  /// The time of a change made now. The last change wins on every device, so
+  /// it must be later than the copy it changes even when that copy came from
+  /// a device whose clock runs ahead of this one.
+  DateTime _stampAfter(DateTime previous, [DateTime? other]) {
+    final latest = other != null && other.isAfter(previous) ? other : previous;
+    final now = DateTime.now().toUtc();
+    return now.isAfter(latest)
+        ? now
+        : latest.toUtc().add(const Duration(milliseconds: 1));
   }
 
   Future<void> _saveLocal() async {

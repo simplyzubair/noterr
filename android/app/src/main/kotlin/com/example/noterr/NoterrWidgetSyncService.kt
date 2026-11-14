@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import org.json.JSONArray
@@ -36,6 +37,13 @@ class NoterrWidgetSyncService : Service() {
     private var executor: ScheduledExecutorService? = null
     private var canRunForeground = false
 
+    // Only touched on the single refresh thread.
+    private var changeCursor: String? = null
+    private var lastFullRefreshAt = 0L
+    private var lastRefreshDay = ""
+    private var cachedKeyFor: String? = null
+    private var cachedKey: ByteArray? = null
+
     override fun onCreate() {
         super.onCreate()
         try {
@@ -52,11 +60,13 @@ class NoterrWidgetSyncService : Service() {
         if (!canRunForeground) return START_NOT_STICKY
         if (executor?.isShutdown != false) {
             executor = Executors.newSingleThreadScheduledExecutor()
+            // Every minute, so a change made on the PC shows on the widget
+            // soon. Most runs only ask "anything new?" and get an empty answer.
             executor?.scheduleWithFixedDelay(
                 { refreshWidgetSafely() },
-                15,
-                3,
-                TimeUnit.MINUTES
+                5,
+                60,
+                TimeUnit.SECONDS
             )
         }
         return START_STICKY
@@ -98,13 +108,41 @@ class NoterrWidgetSyncService : Service() {
             }
         }
         if (salt.isEmpty()) return
-        val vaultKey = deriveVaultKey(passphrase, salt)
+
+        // Ask the server what changed since the last look. Nothing new, same
+        // day: the widget is already right, so skip the full download. A full
+        // one still runs every 15 minutes as a safety net.
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Calendar.getInstance().time)
+        val now = SystemClock.elapsedRealtime()
+        val cursor = changeCursor
+        if (cursor != null &&
+            today == lastRefreshDay &&
+            now - lastFullRefreshAt < FULL_REFRESH_MS
+        ) {
+            val probe = postJson(
+                "$syncUrl/pull",
+                JSONObject().put("syncId", syncId).put("since", cursor)
+            )
+            if ((probe.optJSONArray("notes")?.length() ?: 0) == 0) {
+                val serverTime = probe.optString("serverTime")
+                if (serverTime.isNotEmpty()) changeCursor = serverTime
+                return
+            }
+        }
+
+        val keyFor = "$passphrase\n$salt"
+        val vaultKey = cachedKey?.takeIf { cachedKeyFor == keyFor }
+            ?: deriveVaultKey(passphrase, salt).also {
+                cachedKey = it
+                cachedKeyFor = keyFor
+            }
 
         val pull = postJson(
             "$syncUrl/pull",
             JSONObject().put("syncId", syncId)
         )
         val rows = pull.optJSONArray("notes") ?: JSONArray()
+        val pulledAt = pull.optString("serverTime")
 
         val todayNotes = mutableListOf<JSONObject>()
         val planNotes = mutableListOf<JSONObject>()
@@ -135,6 +173,9 @@ class NoterrWidgetSyncService : Service() {
             .apply()
 
         updateHomeWidgets()
+        changeCursor = pulledAt.ifEmpty { null }
+        lastFullRefreshAt = now
+        lastRefreshDay = today
     }
 
     private fun isPlanNote(note: JSONObject): Boolean {
@@ -446,5 +487,6 @@ class NoterrWidgetSyncService : Service() {
     companion object {
         private const val CHANNEL_ID = "noterr_live_widget_sync"
         private const val NOTIFICATION_ID = 240524
+        private const val FULL_REFRESH_MS = 15 * 60 * 1000L
     }
 }

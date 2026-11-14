@@ -48,6 +48,10 @@ abstract class RemoteSyncService {
   bool get isAvailable;
   String? get currentUserId;
 
+  /// The server's clock at the last pull. The next pull asks for everything
+  /// that reached the server since then, so no device clock is involved.
+  DateTime? get lastServerTime;
+
   Future<void> openSyncProfile(String passphrase, {required String vaultSalt});
   Future<void> closeSyncProfile();
   Future<String> getOrCreateVaultSalt();
@@ -64,6 +68,9 @@ class NoopRemoteSyncService implements RemoteSyncService {
 
   @override
   String? get currentUserId => null;
+
+  @override
+  DateTime? get lastServerTime => null;
 
   @override
   Future<void> openSyncProfile(
@@ -97,9 +104,13 @@ class CloudflareRemoteSyncService implements RemoteSyncService {
   final Uri _baseUri;
   String? _syncId;
   String? _vaultSalt;
+  DateTime? _lastServerTime;
 
   @override
   bool get isAvailable => true;
+
+  @override
+  DateTime? get lastServerTime => _lastServerTime;
 
   @override
   String? get currentUserId => _syncId;
@@ -123,6 +134,7 @@ class CloudflareRemoteSyncService implements RemoteSyncService {
   Future<void> closeSyncProfile() async {
     _syncId = null;
     _vaultSalt = null;
+    _lastServerTime = null;
   }
 
   @override
@@ -141,7 +153,11 @@ class CloudflareRemoteSyncService implements RemoteSyncService {
       'syncId': syncId,
       if (since != null) 'since': since.toUtc().toIso8601String(),
     });
-    return _decodeNotes(response, key);
+    final notes = await _decodeNotes(response, key);
+    final serverTime = response['serverTime'];
+    _lastServerTime =
+        serverTime is String ? DateTime.tryParse(serverTime)?.toUtc() : null;
+    return notes;
   }
 
   @override
@@ -158,8 +174,8 @@ class CloudflareRemoteSyncService implements RemoteSyncService {
         'payload_version': 1,
         'revision': note.revision,
         'device_id': deviceId,
-        'deleted_at': note.deletedAt?.toIso8601String(),
-        'updated_at': note.updatedAt.toIso8601String(),
+        'deleted_at': note.deletedAt?.toUtc().toIso8601String(),
+        'updated_at': note.updatedAt.toUtc().toIso8601String(),
       },
     });
   }
