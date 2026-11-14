@@ -65,7 +65,9 @@ jobs:
         run: |
           set +e
           flutter --version | head -1
-          flutter analyze 2>&1 | tee analyze.log
+          # Infos (such as a deprecation in a new Flutter) are listed but do not
+          # stop the release; warnings and errors still do.
+          flutter analyze --no-fatal-infos 2>&1 | tee analyze.log
           code=${PIPESTATUS[0]}
           set -e
           if [ "$code" -ne 0 ]; then
