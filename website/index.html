@@ -53,6 +53,15 @@
     background: var(--card); border: 1px solid var(--border);
     font: .85rem/1.4 ui-monospace, Consolas, monospace; white-space: nowrap;
   }
+  .cli .row { display: flex; align-items: stretch; gap: 8px; }
+  .cli .row code { flex: 1; }
+  .copy {
+    flex: 0 0 auto; cursor: pointer; border: 1px solid var(--border); background: var(--card);
+    color: var(--text); border-radius: 10px; padding: 0 12px; font-size: .85rem; font-weight: 600;
+    transition: border-color .15s, background .15s;
+  }
+  .copy:hover { border-color: var(--accent); }
+  .copy.copied { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   footer { margin-top: 28px; color: var(--muted); font-size: .85rem; }
   footer a { color: var(--accent); }
 </style>
@@ -82,8 +91,16 @@
   </div>
 
   <div class="cli">
-    <p>Or install on Windows from PowerShell:</p>
-    <code>irm https://raw.githubusercontent.com/simplyzubair/noterr/master/scripts/install.ps1 | iex</code>
+    <p>Install or update Noterr on Windows with one command:</p>
+    <div class="row">
+      <code id="cli-cmd">irm https://raw.githubusercontent.com/simplyzubair/noterr/master/scripts/install.ps1 | iex</code>
+      <button class="copy" type="button" onclick="copyCmd(this)">Copy</button>
+    </div>
+    <p style="margin-top:14px">Or check the installed version:</p>
+    <div class="row">
+      <code>&amp; ([scriptblock]::Create((irm https://raw.githubusercontent.com/simplyzubair/noterr/master/scripts/noterr.ps1))) version</code>
+      <button class="copy" type="button" onclick="copyCmd(this)">Copy</button>
+    </div>
   </div>
 
   <footer>
@@ -92,6 +109,16 @@
   </footer>
 </main>
 <script>
+  function copyCmd(btn) {
+    const code = btn.previousElementSibling.textContent;
+    navigator.clipboard.writeText(code).then(() => {
+      const t = btn.textContent;
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = t; btn.classList.remove('copied'); }, 1500);
+    });
+  }
+
   // Point the buttons at the newest release's files. If GitHub can't be
   // reached, the links stay on the release page, which still works.
   (async () => {
