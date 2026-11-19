@@ -37,12 +37,17 @@ class ObsidianSyncResult {
     this.addedTasks = const [],
     this.updatedTasks = const [],
     this.error,
+    this.fileModified,
   });
 
   final List<String> addedBodyLines;
   final List<ObsidianTask> addedTasks;
   final List<ObsidianTask> updatedTasks;
   final String? error;
+
+  /// When the Obsidian file was last written. A tick in Noterr made after
+  /// this is newer than what the file says.
+  final DateTime? fileModified;
 
   bool get hasChanges =>
       addedBodyLines.isNotEmpty ||
@@ -310,7 +315,13 @@ class ObsidianSyncService {
     // user-written headings outside our block.
     final outside = _extractOutsideSection(raw);
 
-    return _diffWithNote(note, outside);
+    final diff = _diffWithNote(note, outside);
+    return ObsidianSyncResult(
+      addedBodyLines: diff.addedBodyLines,
+      addedTasks: diff.addedTasks,
+      updatedTasks: diff.updatedTasks,
+      fileModified: modified.toUtc(),
+    );
   }
 
   // ── Check if external edit happened ──────────────────────────────────────

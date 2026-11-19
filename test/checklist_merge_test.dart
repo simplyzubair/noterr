@@ -85,6 +85,27 @@ void main() {
     });
   });
 
+  group('obsidianIsNewer', () {
+    final tick = DateTime.utc(2026, 11, 19, 9);
+
+    test('an Obsidian file older than the tick does not undo it', () {
+      expect(
+        NoterrController.obsidianIsNewer(
+            tick.subtract(const Duration(hours: 1)), tick),
+        isFalse,
+      );
+      expect(NoterrController.obsidianIsNewer(null, tick), isFalse);
+    });
+
+    test('a file edited after the tick wins', () {
+      expect(
+        NoterrController.obsidianIsNewer(
+            tick.add(const Duration(minutes: 1)), tick),
+        isTrue,
+      );
+    });
+  });
+
   group('carriedTaskDoneAtSource', () {
     final day = DateTime(2026, 10, 20);
     final carried = ChecklistItem(text: 'Call bank', carriedFrom: day.toUtc());
@@ -94,6 +115,14 @@ void main() {
         _history(day, [
           ChecklistItem(text: 'call bank').copyWith(done: true),
         ]),
+      ];
+      expect(NoterrController.carriedTaskDoneAtSource(carried, notes), isTrue);
+    });
+
+    test('is true when the task was deleted on the source day', () {
+      final notes = [
+        _history(day, [ChecklistItem(text: 'Other')])
+            .copyWith(deletedChecklistItemKeys: ['text:call bank']),
       ];
       expect(NoterrController.carriedTaskDoneAtSource(carried, notes), isTrue);
     });

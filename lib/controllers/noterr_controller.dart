@@ -1167,7 +1167,31 @@ class NoterrController extends ChangeNotifier {
     return null;
   }
 
+  /// Takes in what the other devices did before this one tidies its day.
+  /// This device's copy can be days old (the phone app is rarely open, a PC
+  /// was off, an update restarted it). Rolling the day over from that copy
+  /// brought back tasks already done or deleted elsewhere. Offline it is
+  /// skipped, and the next sync puts things right.
+  Future<void> _pullBeforeFirstRoll(String passphrase) async {
+    final key = _key;
+    final salt = _activeVaultSalt;
+    if (!hasCloud || key == null || salt == null) return;
+    try {
+      await () async {
+        await _remote.openSyncProfile(passphrase, vaultSalt: salt);
+        // Another salt means this vault is re-locked first, later on.
+        if (await _remote.getOrCreateVaultSalt() != salt) return;
+        final remoteNotes = await _remote.pullNotes(key);
+        if (identical(_key, key)) _merge(remoteNotes);
+      }()
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      // Offline or slow: start with what this device has.
+    }
+  }
+
   Future<void> _finishUnlock(String passphrase) async {
+    await _pullBeforeFirstRoll(passphrase);
     await ensureTodayTodoNote();
     if (!hasCloud || _remote.currentUserId != null) {
       _subscribeRemote();
@@ -1371,6 +1395,8 @@ class NoterrController extends ChangeNotifier {
       if (!result.hasChanges) return;
 
       Note updated = today;
+      final fileAt = result.fileModified;
+      final deletedKeys = today.deletedChecklistItemKeys.toSet();
 
       // Merge new body lines
       if (result.addedBodyLines.isNotEmpty) {
@@ -1382,31 +1408,49 @@ class NoterrController extends ChangeNotifier {
       }
 
       // Add new tasks
-      if (result.addedTasks.isNotEmpty) {
-        final newItems = result.addedTasks
-            .map((t) => ChecklistItem(text: t.text, done: t.done))
-            .toList();
+      // Add new tasks, but never one deleted in Noterr: the file still has
+      // it after a restart or an update, and it kept coming back.
+      final newItems = result.addedTasks
+          .where((t) =>
+              !deletedKeys.contains('text:${t.text.trim().toLowerCase()}'))
+          .map((t) => ChecklistItem(text: t.text, done: t.done))
+          .toList();
+      if (newItems.isNotEmpty) {
         updated = updated.copyWith(
           checklist: [...updated.checklist, ...newItems],
         );
       }
 
-      // Update done-state of tasks that changed in Obsidian
+      // Take a tick or untick from Obsidian only when the file was written
+      // after the task last changed here. An older file would undo a tick.
       if (result.updatedTasks.isNotEmpty) {
         final byText = {for (final t in result.updatedTasks) t.text.toLowerCase(): t};
         final checklist = updated.checklist.map((item) {
           final obsTask = byText[item.text.trim().toLowerCase()];
           if (obsTask == null) return item;
+          if (!obsidianIsNewer(fileAt, item.doneChangedAt ?? today.updatedAt)) {
+            return item;
+          }
           return item.copyWith(done: obsTask.done);
         }).toList();
         updated = updated.copyWith(checklist: checklist);
       }
 
+      if (identical(updated, today) ||
+          jsonEncode(updated.toJson()) == jsonEncode(today.toJson())) {
+        return;
+      }
       await updateNote(updated);
     } catch (e) {
       debugPrint('[ObsidianSync] poll error: $e');
     }
   }
+
+  /// Whether an Obsidian file written at [fileAt] is newer than a change
+  /// made in Noterr at [changedAt].
+  @visibleForTesting
+  static bool obsidianIsNewer(DateTime? fileAt, DateTime changedAt) =>
+      fileAt != null && fileAt.isAfter(changedAt);
 
   Future<Note> createNote({
     String boardName = 'Personal',
@@ -1895,7 +1939,7 @@ class NoterrController extends ChangeNotifier {
   }
 
   /// Whether [item] is an open task carried from a day whose board shows the
-  /// same task done.
+  /// same task done, or deleted.
   @visibleForTesting
   static bool carriedTaskDoneAtSource(ChecklistItem item, List<Note> notes) {
     final from = item.carriedFrom?.toLocal();
@@ -1904,15 +1948,19 @@ class NoterrController extends ChangeNotifier {
     if (text.isEmpty) return false;
     return notes.any((note) {
       final day = note.dayKey;
-      return !note.isDeleted &&
-          note.boardName == 'History' &&
-          day.year == from.year &&
-          day.month == from.month &&
-          day.day == from.day &&
-          note.checklist.any(
-            (source) =>
-                source.done && source.text.trim().toLowerCase() == text,
-          );
+      if (note.isDeleted ||
+          note.boardName != 'History' ||
+          day.year != from.year ||
+          day.month != from.month ||
+          day.day != from.day) {
+        return false;
+      }
+      final sameTask = note.checklist
+          .where((source) => source.text.trim().toLowerCase() == text);
+      if (sameTask.any((source) => source.done)) return true;
+      // Deleted there, and not written again afterwards.
+      return sameTask.isEmpty &&
+          note.deletedChecklistItemKeys.contains('text:$text');
     });
   }
 
